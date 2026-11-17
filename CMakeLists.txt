@@ -26,7 +26,9 @@ endfunction()
 
 # --- Core simulation library -------------------------------------------------
 add_library(ant_core STATIC
+    src/core/instinct.cpp
     src/core/level.cpp
+    src/core/pheromones.cpp
     src/core/world.cpp
 )
 target_include_directories(ant_core PUBLIC src)
@@ -37,6 +39,8 @@ if(ANT_BUILD_TESTS)
     enable_testing()
     add_executable(ant_tests
         tests/test_main.cpp
+        tests/test_instinct.cpp
+        tests/test_pheromones.cpp
         tests/test_vec2.cpp
         tests/test_level.cpp
         tests/test_world.cpp
@@ -62,6 +66,8 @@ if(ANT_BUILD_GAME)
 
     add_executable(ant_game
         src/app/main.cpp
+        src/render/hud.cpp
+        src/render/lighting.cpp
         src/render/renderer.cpp
         src/render/sprites.cpp
     )

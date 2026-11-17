@@ -1,7 +1,7 @@
 # Neural Network Guide
 
 This document explains what a neural network is, every piece of math it needs,
-and the plan for building one in C++ that learns to play Ant Picnic. Nothing
+and the plan for building one in C++ that learns to drive an ant in Ant Picnic. Nothing
 here is built yet; this is the map we will follow.
 
 Read it top to bottom. Every term is defined the first time it appears, and
@@ -13,14 +13,17 @@ there is a glossary at the end.
 
 ### 1.1 The goal
 
-Today a human presses keys and the game receives an `AntAction`:
+Every ant in the simulation is driven by an `AntAction`:
 
 ```
 AntAction { forward, turn }      both between -1 and +1
 ```
 
-We want a program that looks at the ant's situation and chooses those two
-numbers by itself, well enough to collect the food and bring it home.
+Today the keyboard produces it for your ant, and a set of hand-written rules
+called the **instinct** (`src/core/instinct.cpp`) produces it for the others.
+We want a third source: a program that looks at an ant's situation and
+chooses those two numbers by itself, having *learned* how, well enough to
+find food and bring it home.
 
 ### 1.2 A neural network is just a function
 
@@ -28,7 +31,7 @@ A neural network is a function: numbers go in, numbers come out.
 
 ```
 what the ant senses              the network              what the ant does
-  (14 numbers)        ---->   f(inputs) = outputs  ---->    (2 numbers)
+  (22 numbers)        ---->   f(inputs) = outputs  ---->    (2 numbers)
   "observation"                                             "action"
 ```
 
@@ -40,19 +43,28 @@ good set of parameters. That is the whole idea; the rest is detail.
 ### 1.3 What the ant will sense (the inputs)
 
 A network can only work with numbers, so we must describe the ant's situation
-as a list of numbers. The proposed list, 14 values, each scaled to roughly
-`-1..1` or `0..1`:
+as a list of numbers. We give it the same senses a real ant has, which are
+also the ones the instinct already uses. The proposed list, 22 values, each
+scaled to roughly `-1..1` or `0..1`:
 
 | # | Input | Meaning |
 | --- | --- | --- |
-| 1-7 | 7 "feelers" | Rays fanned across the ant's front. Each reports how close the nearest obstacle or table edge is along that ray: `1` = touching, `0` = nothing within range. |
-| 8-9 | food direction | `sin` and `cos` of the angle from the ant's heading to the nearest food. |
-| 10 | food closeness | `1` = on top of it, `0` = far away (or none left). |
-| 11-12 | nest direction | `sin` and `cos` of the angle from the ant's heading to the nest. |
-| 13 | nest closeness | `1` = at the nest, `0` = far away. |
-| 14 | carrying | `1` if holding food, otherwise `0`. |
+| 1-5 | 5 feelers | Rays fanned across the ant's front. Each reports how close the nearest solid thing (obstacle, wall, edge of the map) is along that ray: `1` = touching, `0` = nothing within reach. |
+| 6-8 | poison smell | Left, ahead, right: `1` if there is poison just there, else `0`. |
+| 9-11 | food scent | Strength of the food pheromone to the left, ahead and right. |
+| 12-14 | home scent | Strength of the home pheromone to the left, ahead and right. |
+| 15-16 | food in sight: direction | `sin` and `cos` of the angle from the ant's heading to the nearest food it can see. Both `0` if none is in sight. |
+| 17 | food in sight: closeness | `1` = on top of it, `0` = at the edge of sight (or none). |
+| 18-19 | nest direction | `sin` and `cos` of the angle from the ant's heading to the nest (an ant's sense of where home is). |
+| 20 | nest closeness | `1` = at the nest, `0` = far away. |
+| 21 | carrying | `1` if holding food, otherwise `0`. |
+| 22 | health | `1` = healthy, `0` = about to die. |
 
-Two notes on why they look like this:
+Notice what is *not* in the list: where the food is, where the basket's
+doorway is, what the other ants are doing. Like a real ant, the network has
+to work that out from scent.
+
+Two notes on why the inputs look like this:
 
 - **Why `sin` and `cos` instead of the angle itself?** An angle jumps from
   `+180` degrees to `-180` degrees when the target passes behind the ant. That
@@ -64,14 +76,14 @@ Two notes on why they look like this:
 ### 1.4 The shape of our network
 
 ```
- 14 inputs          16 hidden neurons         2 outputs
+ 22 inputs          16 hidden neurons         2 outputs
  (observation)                                (forward, turn)
 
    x1 ---\
    x2 ----\        [h1]
    x3 -----+-----> [h2] ----\
    ...    /        ...       +-----> [forward]
-   x14 --/         [h16] ---/+-----> [turn]
+   x22 --/         [h16] ---/+-----> [turn]
 ```
 
 Every input connects to every hidden neuron, and every hidden neuron connects
@@ -172,7 +184,7 @@ for every neuron".
 Feed the output of one layer into the next. For our network:
 
 ```
-h      = tanh( W1 * x + b1 )       hidden layer:  W1 is 16 x 14, b1 has 16
+h      = tanh( W1 * x + b1 )       hidden layer:  W1 is 16 x 22, b1 has 16
 output = tanh( W2 * h + b2 )       output layer:  W2 is  2 x 16, b2 has  2
 ```
 
@@ -181,12 +193,12 @@ Running this from input to output is called the **forward pass**.
 **Counting the parameters:**
 
 ```
-W1: 16 * 14 = 224      b1: 16
+W1: 16 * 22 = 352      b1: 16
 W2:  2 * 16 =  32      b2:  2
-                             total = 274 numbers
+                             total = 402 numbers
 ```
 
-Those 274 numbers *are* the ant's brain. Everything it knows is in them.
+Those 402 numbers *are* the ant's brain. Everything it knows is in them.
 
 ---
 
@@ -403,53 +415,24 @@ If they agree to several decimal places, the implementation is correct.
 
 ---
 
-## Part 4 - Teaching the ant
+## Part 4 - From math to a working ant
 
-Backpropagation needs a **target**: the "right answer" for each input. In a
+### 4.1 Where the "right answers" come from
+
+Backpropagation needs a **target**: the right answer for each input. In a
 game nobody hands us the right answer for every moment. There are three
-standard ways around this, and we will use them in order of difficulty.
+standard ways around this:
 
-### 4.1 Imitation learning (learn by watching you)
+| Method | Where the targets come from | Uses backpropagation? |
+| --- | --- | --- |
+| **Imitation learning** | Copy a teacher: you at the keyboard, or the built-in instinct. | Yes |
+| **Neuroevolution** | No targets at all. Try many random brains, keep and mutate the best. | No |
+| **Reinforcement learning** | The ant's own experience, scored by rewards. | Yes |
 
-1. You play the game. Each step we record a pair:
-   `(what the ant sensed, what you pressed)`.
-2. Your key presses become the targets. Train with backpropagation so the
-   network outputs what you would have done in each situation.
+How each one works, what comes out at the end, and how to steer an ant toward
+a particular behaviour is the subject of [TRAINING.md](TRAINING.md).
 
-- Uses everything in Part 3 directly.
-- The ant can only become roughly as good as its teacher.
-
-### 4.2 Neuroevolution (learn by survival of the fittest)
-
-No derivatives at all. Treat the 274 parameters as an ant's "DNA".
-
-1. Create a **population** of, say, 100 ants with random parameters.
-2. Let each one play a full game (no window, so this is fast).
-3. Give each a **fitness** score for how well it did.
-4. Keep the best few. Refill the population with copies of them, each with
-   small random changes to its parameters (**mutation**).
-5. Repeat for many **generations**.
-
-A possible fitness score:
-
-```
-fitness = 100 * foodDelivered
-        +  20 * foodPickedUp
-        +  small bonus for getting closer to the current goal
-        +  bonus for time left over after a win
-```
-
-- Very simple to write and satisfying to watch.
-- Needs many games, which is why the simulation was built to run headless.
-
-### 4.3 Reinforcement learning (learn from reward)
-
-The ant plays, receives a **reward** (a number) when good things happen, and
-the gradients are arranged to make rewarded actions more likely. This is the
-most powerful approach and the most intricate. We leave it for last, once
-everything above works.
-
-### 4.4 The build plan
+### 4.2 The build plan
 
 Each stage is small, tested, and ends with something you can see working.
 
@@ -458,10 +441,11 @@ Each stage is small, tested, and ends with something you can see working.
 | 1 | `Matrix` class: multiply, add, transpose | unit tests against hand-computed values |
 | 2 | `Network`: layers, forward pass | reproduces the worked example in 3.5 |
 | 3 | Backpropagation and gradient descent | gradient checking (3.8); learns XOR |
-| 4 | Sensors: build the 14-number observation from a `World` | unit tests on hand-made levels |
-| 5 | Imitation: record your play, train, watch the ant copy you | loss falls; the ant delivers food on its own |
-| 6 | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
-| 7 | (later) Reinforcement learning | to be planned |
+| 4 | Senses: build the 22-number observation from a `World` | unit tests on hand-made levels |
+| 5 | Brain files: save a network to disk and load it back | a saved-then-loaded network gives identical outputs |
+| 6 | Imitation: record a teacher, train, watch the ant copy it | loss falls; the ant delivers food on its own |
+| 7 | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
+| 8 | (later) Reinforcement learning | to be planned |
 
 **XOR** (stage 3) is the classic first test for a network. It is the rule
 "output 1 if exactly one of two inputs is 1":
@@ -478,31 +462,34 @@ No single neuron can learn it, because no single straight line separates the
 1s from the 0s. A network with a hidden layer can. If ours learns XOR, the
 forward pass, backpropagation and gradient descent all work.
 
-### 4.5 Where the code will live
+### 4.3 Where the code will live
 
 ```
 src/
   nn/                 new library "ant_nn" - depends on nothing
     matrix.h / .cpp     Matrix: the grid-of-numbers type and its operations
     activation.h        tanh and its slope
-    network.h / .cpp    Network: layers, forward(), backward(), update
+    network.h / .cpp    Network: layers, forward(), backward(), update, save/load
   agent/              connects the network to the game
-    sensors.h / .cpp    World -> 14-number observation
+    senses.h / .cpp     World + ant index -> 22-number observation
     brain.h / .cpp      observation -> Network -> AntAction
-    trainer...          imitation and evolution loops
+  train/              the training programs
+    imitation...        record a teacher and train by backpropagation
+    evolution...        population, fitness, mutation
 ```
 
-And how it plugs into the game that already exists:
+And how it plugs into the simulation that already exists:
 
 ```
-            +---------+  observation   +---------+  AntAction   +-------+
-World ----> | sensors | -------------> | Network | -----------> | World |
-            +---------+  (14 numbers)  +---------+  (2 numbers) | .step |
-                                                                +-------+
+            +--------+  observation   +---------+  AntAction   +-------+
+World ----> | senses | -------------> | Network | -----------> | World |
+            +--------+  (22 numbers)  +---------+  (2 numbers) | .step |
+                                                               +-------+
 ```
 
-`World::step` already accepts an `AntAction`, so the game itself does not
-change at all. See [ARCHITECTURE.md](ARCHITECTURE.md).
+`World::step` already accepts one `AntAction` per ant, so the simulation
+itself does not change at all. A brain is a drop-in replacement for
+`instinctAction`. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -517,7 +504,7 @@ change at all. See [ARCHITECTURE.md](ARCHITECTURE.md).
 | **Chain rule** | To find how a result reacts to an early step, multiply the reactions of each step in between. |
 | **Delta** | A neuron's error: how much the loss changes when that neuron's `z` changes. |
 | **Derivative** | The slope: how much an output changes per tiny change in an input. |
-| **Fitness** | A score for how well one ant played a whole game (used in neuroevolution). |
+| **Fitness** | A score for how well one brain played a whole game (used in neuroevolution). |
 | **Forward pass** | Running the network from inputs to outputs. |
 | **Generation** | One round of play-score-select-mutate in neuroevolution. |
 | **Gradient** | The collection of derivatives of the loss with respect to every parameter. |
@@ -529,8 +516,10 @@ change at all. See [ARCHITECTURE.md](ARCHITECTURE.md).
 | **Matrix** | A rectangular grid of numbers. |
 | **Mutation** | A small random change to a parameter (used in neuroevolution). |
 | **Neuron** | A unit computing `a = f(w1*x1 + ... + wn*xn + b)`. |
+| **Instinct** | The hand-written rules that drive the worker ants today. |
 | **Observation** | The list of numbers describing what the ant currently senses. |
 | **Parameters** | All the weights and biases: the numbers that learning adjusts. |
+| **Pheromone** | A scent mark ants leave on the ground to guide each other. |
 | **Target** | The correct output for a training example. |
 | **Transpose** | A matrix flipped so its rows become its columns. |
 | **Vector** | A list of numbers (a matrix with one column). |
