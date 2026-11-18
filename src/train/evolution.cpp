@@ -57,53 +57,77 @@ Network evolve(const Network& start, const EvolutionSettings& settings,
         std::clamp<std::size_t>(static_cast<std::size_t>(static_cast<float>(populationSize) * settings.eliteShare), 1,
                                 populationSize - 1);
 
+    // One member of the population: a brain and its record so far.
+    struct Member {
+        Network brain;
+        float totalScore = 0.0f;  ///< Sum of its fitness over every generation it has played.
+        int generationsPlayed = 0;
+        float average() const { return totalScore / static_cast<float>(std::max(1, generationsPlayed)); }
+    };
+
     // The first population: the starting brain and mutated copies of it.
-    std::vector<Network> population(populationSize, start);
+    std::vector<Member> population(populationSize, Member{start});
     for (std::size_t i = 1; i < populationSize; ++i) {
-        mutate(population[i], settings.mutationStrength, rng);
+        mutate(population[i].brain, settings.mutationStrength, rng);
     }
 
     std::vector<float> scores(populationSize, 0.0f);
-    std::vector<std::size_t> ranking(populationSize);
+    std::uint32_t nextSeed = settings.firstSeed;
 
     for (int generation = 1; generation <= settings.generations; ++generation) {
-        // Every brain plays the same layouts this generation, so the comparison is fair.
-        const std::uint32_t seed =
-            settings.firstSeed + static_cast<std::uint32_t>((generation - 1) * settings.seedsPerGeneration);
+        // Every brain plays the same maps this generation, so the comparison is fair.
+        const std::uint32_t seed = nextSeed;
+        nextSeed += static_cast<std::uint32_t>(settings.seedsPerGeneration);
         parallelFor(populationSize, settings.threads, [&](std::size_t i) {
-            scores[i] = averageFitness(population[i], seed, settings.seedsPerGeneration, settings.episodeSeconds,
-                                       settings.weights);
+            scores[i] = averageFitness(population[i].brain, seed, settings.seedsPerGeneration,
+                                       settings.episodeSeconds, settings.weights);
         });
+        for (std::size_t i = 0; i < populationSize; ++i) {
+            population[i].totalScore += scores[i];
+            ++population[i].generationsPlayed;
+        }
 
-        // Rank the brains, best first.
-        std::iota(ranking.begin(), ranking.end(), std::size_t{0});
-        std::sort(ranking.begin(), ranking.end(), [&](std::size_t a, std::size_t b) { return scores[a] > scores[b]; });
+        // Rank by lifetime average, best first. Some maps are easier than
+        // others, so one good generation can be luck; a brain that has
+        // survived several generations is judged on all of them.
+        std::sort(population.begin(), population.end(),
+                  [](const Member& a, const Member& b) { return a.average() > b.average(); });
 
         if (onGeneration) {
             GenerationReport report;
             report.generation = generation;
-            report.bestFitness = scores[ranking.front()];
+            report.bestFitness = population.front().average();
             report.averageFitness = std::accumulate(scores.begin(), scores.end(), 0.0f) / static_cast<float>(populationSize);
-            onGeneration(report, population[ranking.front()]);
-        }
-
-        // The next population: the elite unchanged, then mutated copies of random elite members.
-        std::vector<Network> next;
-        next.reserve(populationSize);
-        for (std::size_t i = 0; i < eliteCount; ++i) {
-            next.push_back(population[ranking[i]]);
+            onGeneration(report, population.front().brain);
         }
         if (generation == settings.generations) {
-            return next.front();
+            break;
         }
-        while (next.size() < populationSize) {
-            Network child = next[rng() % eliteCount];
-            mutate(child, settings.mutationStrength, rng);
-            next.push_back(std::move(child));
+
+        // The next population: the elite unchanged (keeping their records),
+        // then mutated copies of random elite members (starting fresh).
+        population.erase(population.begin() + static_cast<std::ptrdiff_t>(eliteCount), population.end());
+        while (population.size() < populationSize) {
+            Member child{population[rng() % eliteCount].brain};
+            mutate(child.brain, settings.mutationStrength, rng);
+            population.push_back(std::move(child));
         }
-        population = std::move(next);
     }
-    return start;  // only reached when zero generations were asked for
+
+    // The final exam: the elite all play a larger set of maps none of them
+    // has seen, and the one that does best there is the result.
+    const std::size_t finalists = std::min(eliteCount, population.size());
+    if (settings.finalExamSeeds <= 0 || settings.generations <= 0) {
+        return population.front().brain;
+    }
+    std::vector<float> examScores(finalists, 0.0f);
+    parallelFor(finalists, settings.threads, [&](std::size_t i) {
+        examScores[i] = averageFitness(population[i].brain, nextSeed, settings.finalExamSeeds,
+                                       settings.episodeSeconds, settings.weights);
+    });
+    const std::size_t winner =
+        static_cast<std::size_t>(std::max_element(examScores.begin(), examScores.end()) - examScores.begin());
+    return population[winner].brain;
 }
 
 }  // namespace ant

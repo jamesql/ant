@@ -213,6 +213,7 @@ TEST(evolution_runs_and_gives_the_same_result_every_time) {
     settings.generations = 2;
     settings.seedsPerGeneration = 1;
     settings.episodeSeconds = 5.0f;
+    settings.finalExamSeeds = 2;
 
     std::vector<float> bestScores;
     const auto remember = [&](const GenerationReport& report, const Network&) {

@@ -60,6 +60,7 @@ build/Release/ant_game.exe --brain brains/forager.brain --colony-brain brains/fo
 | `--record <file>` | Record your own play, for a network to learn from. |
 | `--save-brain <file>` | Write the current network to a brain file. |
 | `--show-network` | Start with the network view open. |
+| `--seed <number>` | Start on that map. Without it, every launch picks a different random map. |
 
 ## Training a brain
 
@@ -75,15 +76,16 @@ build/Release/ant_train.exe imitate --seeds 1-20 --out brains/copycat.brain
 ```
 
 ```bash
-build/Release/ant_train.exe evolve --start brains/copycat.brain --seconds 240 --seeds-per-generation 3 --first-seed 100 --out brains/forager.brain
+build/Release/ant_train.exe evolve --start brains/copycat.brain --first-seed 100 --out brains/forager.brain
 ```
 
 ```bash
-build/Release/ant_train.exe score --brain brains/forager.brain --seeds 1000-1019
+build/Release/ant_train.exe score --brain brains/forager.brain --seeds 1000-1039
 ```
 
-On 20 food layouts it never trained on, the included `forager` brain delivers
-13.1 of 14 pieces per game; the hand-written instinct delivers 12.9. See
+Every map is random (nest, basket, obstacles, poison and food all move). On 40
+maps it never trained on, the included `forager` brain delivers
+11.7 of 14 pieces per game; the hand-written instinct delivers 11.8. See
 [docs/TRAINING.md](docs/TRAINING.md) for how it was made.
 
 **If Windows refuses to run `ant_train.exe` or `ant_tests.exe`** ("An
@@ -113,7 +115,7 @@ Brain files are plain text, so the Windows game loads brains trained in WSL.
 | `N` | Show or hide the live neural network view |
 | `B` | Let the neural network drive your ant, or take control back |
 | `G` | Swap in a new random network |
-| `R` | Restart with a new food layout |
+| `R` | Restart on a new random map |
 | `Esc` | Quit |
 
 ## How to play
@@ -123,8 +125,8 @@ Brain files are plain text, so the Windows game loads brains trained in WSL.
 - **Scent trails**: blue marks lead home, orange marks lead to food. Every ant
   lays them automatically, including you. Carry food home from somewhere new
   and the colony will follow your orange trail back to it.
-- **The basket** holds most of the food. Its only way in is a gap at one
-  corner.
+- **The basket** holds most of the food. Its only way in is a gap at the
+  corner nearest the anthill.
 - **Poison puddles** (green) drain your health. Leave quickly and you recover;
   stay and your ant dies, and the colony hatches a replacement at the nest a
   few seconds later.

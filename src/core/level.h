@@ -31,14 +31,15 @@ struct Wall {
     float thickness = 0.2f;
 };
 
-/// A picnic basket: a walled rectangle with one doorway, at the north end of
-/// its west side (the corner nearest the nest).
+/// A picnic basket: a walled rectangle with one doorway, in the corner
+/// nearest the nest.
 /// The solid parts are stored separately in `Level::walls`; this record
 /// tells the renderer where the basket is.
 struct Basket {
     Vec2 center;
     Vec2 halfSize;
     float doorWidth = 1.8f;
+    Vec2 door;  ///< The middle of the doorway.
 };
 
 /// A puddle of poison. Ants standing in it lose health.
@@ -90,15 +91,20 @@ struct Level {
     float timeLimit = 300.0f;  ///< Seconds allowed to bring home every piece of food.
 };
 
-/// Builds the picnic level: a blanket on the grass with plates, cups,
-/// glasses, bottles, poison puddles and a basket full of food. The anthill
-/// is on the grass just off one corner of the blanket.
+/// Builds a picnic level: a blanket on the grass with plates, cups, glasses,
+/// bottles, poison puddles and a basket full of food, and an anthill
+/// somewhere on the grass around the blanket.
 ///
-/// The layout is always the same; only the food is scattered at random. The
-/// same `seed` always produces the same scatter, which keeps games
-/// repeatable (important for training and for tests).
+/// The whole map is random: where the nest is, where the basket is and how
+/// big, how many obstacles and puddles there are and where, and where the
+/// food lies. Only the sizes of the ground and the blanket are fixed. This
+/// matters for training: a brain cannot do well by memorising one map.
 ///
-/// @param seed          Chooses the food layout.
+/// The same `seed` always produces exactly the same map, which keeps games
+/// repeatable (important for training and for tests). Every map is fair:
+/// there is room to walk between any two things, and all food can be reached.
+///
+/// @param seed          Chooses the map.
 /// @param scatteredFood Pieces of food lying in the open on the blanket.
 /// @param basketFood    Pieces of food inside the basket.
 /// On a very crowded map fewer pieces may be placed if no free spot is found.

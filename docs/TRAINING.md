@@ -24,9 +24,15 @@ The training tool is `ant_train`. Run it with no arguments for its options.
 ```
 ant_train xor                                             prove the learning math works
 ant_train imitate --seeds 1-20 --out brains/copycat.brain copy the instinct
-ant_train evolve  --start brains/copycat.brain --seconds 240 --seeds-per-generation 3 \
-                  --first-seed 100 --out brains/forager.brain
-ant_train score   --brain brains/forager.brain --seeds 1000-1019
+ant_train evolve  --start brains/copycat.brain --first-seed 100 --out brains/forager.brain
+ant_train score   --brain brains/forager.brain --seeds 1000-1039
+```
+
+To train an existing brain further, start from it and give a `--first-seed`
+it has not used yet, so it meets new maps:
+
+```
+ant_train evolve --start brains/forager.brain --first-seed 5000 --sigma 0.05 --out brains/forager2.brain
 ```
 
 Then watch the result in the game, with the same brain driving your ant and
@@ -51,29 +57,43 @@ cmake --build ~/ant-build -j
 ~/ant-build/ant_train xor
 ```
 
+On Windows, run long training in a normal foreground terminal. Runs started
+in the background were throttled to a fraction of their speed.
+
 ### 0.2 What happened when we ran it
 
-Measured on 20 food layouts that no brain was trained on (seeds 1000-1019),
-full 4-minute games, every ant in the colony driven by the same brain:
+Every map is random: the nest, the basket, the obstacles, the poison and the
+food are all placed differently for each seed. All scores below are measured
+on 40 maps that no brain was trained on (seeds 1000-1039), full 4-minute
+games, every ant in the colony driven by the same brain:
 
-| Brain | How it was made | Food delivered per game (of 14) | Games won (of 20) |
+| Brain | How it was made | Food delivered per game (of 14) | Games won (of 40) |
 | --- | --- | --- | --- |
 | random | untrained | 0.0 | 0 |
-| `copycat` | imitation of the instinct, 30 epochs (24 seconds) | 6.4 | 1 |
-| `forager` | `copycat`, then 32 generations of evolution (about 11 minutes) | 13.1 | 12 |
-| the instinct | hand-written rules | 12.9 | 16 |
+| `copycat` | imitation of the instinct | 5.9 | 3 |
+| (not kept) | `copycat` + 32 generations of evolution **on one fixed map layout** | 9.4 | 10 |
+| `forager` | the above + 36 generations of evolution **on random maps** (about 16 minutes) | 11.7 | 24 |
+| the instinct | hand-written rules | 11.8 | 26 |
 
 What this shows:
 
-- **Imitation alone gets part-way.** The loss fell from 0.124 to 0.078 and the
-  colony went from delivering nothing to delivering almost half the food. It
-  does not match its teacher, for the reasons given in 2.1 (drift, and a
-  teacher whose wandering depends on things the network cannot sense).
-- **Evolution closes the gap.** Starting from `copycat`, the best fitness went
-  from about 1,600 to about 2,750 in four generations and stayed there. The
-  result carries home as much food as the hand-written rules, though it wins
-  outright (all 14 in time) a little less often.
-- **It generalises.** None of the 20 scoring layouts were seen in training.
+- **Imitation alone gets part-way.** The loss falls and the colony goes from
+  delivering nothing to delivering a good part of the food, but it does not
+  match its teacher, for the reasons given in 2.1 (drift, and a teacher whose
+  wandering depends on things the network cannot sense).
+- **Imitation is also unreliable.** Retraining it on 40 random maps reached a
+  *lower* loss (0.073) yet a *worse* colony (2.0 pieces per game). A low loss
+  means "usually presses what the teacher would", which is not the same as
+  "forages well". The better copycat was kept.
+- **Training on one map teaches the map.** The middle row is the history of
+  this project. Before maps were randomised, obstacles and the basket were
+  always in the same place, and a brain evolved there scored 13.1 on "unseen"
+  games that only moved the food. On genuinely different maps it drops to
+  9.4. It had partly memorised the layout. This is overfitting (see 1.3), and
+  it stayed hidden for as long as the test maps resembled the training maps.
+- **Training on random maps fixes it.** Continuing evolution with a different
+  map every game brought the same brain up to the level of the hand-written
+  rules on maps it has never seen.
 
 The exact numbers will differ slightly from one compiler to another, because
 shuffling the examples is not done identically everywhere.
@@ -150,17 +170,21 @@ One complete game like this is called an **episode**.
 
 ### 1.3 Seeds, and why we never train on just one
 
-`makePicnicLevel(seed)` scatters the food differently for each seed. If we
-trained on one seed only, the network could simply memorise "turn left after
-three seconds" for that one layout. That is called **overfitting**: doing well
-on what you practised and badly on anything new.
+`makePicnicLevel(seed)` builds a different map for every seed: the nest, the
+basket, the obstacles, the poison and the food all move. If we trained on one
+map only, the network could simply memorise "turn left after three seconds"
+for that one map. That is called **overfitting**: doing well on what you
+practised and badly on anything new.
 
 So we always:
 
-- train on **many seeds** (say 1 to 50), and
-- judge the result on **seeds it has never seen** (say 1000 to 1019).
+- train on **many maps**, and
+- judge the result on **maps it has never seen** (seeds 1000 and up).
 
-The score on unseen seeds is the honest one.
+The score on unseen maps is the honest one. For it to be honest, the unseen
+maps must differ from the training maps in every way that matters. Part 0.2
+tells how this project learned that: while only the food moved between maps,
+a brain could memorise where the basket was and still pass the test.
 
 ---
 
@@ -255,11 +279,14 @@ create a population of 100 brains (random, or copies of an imitation brain)
 
 repeat for many generations:
     for each brain:
-        play one episode on each of several seeds
-        fitness = average score over those episodes
-    sort brains by fitness, best first
+        play one episode on each of a few maps (new maps every generation)
+        score = average fitness over those episodes
+    sort brains by their average score over every generation they have played
     keep the top 20 unchanged                      (the "elite")
     refill to 100 with mutated copies of the elite
+
+at the end: the elite all play a larger "final exam" of fresh maps;
+            the one that does best there is the result
 ```
 
 New terms:
@@ -378,17 +405,23 @@ from one ant to another.
 ### 3.2 The training log
 
 Alongside the brain, evolution writes a log (`forager.brain.log`), one line per
-generation. These are the first lines of the real run from Part 0:
+generation: the leader's score (averaged over every generation it has survived)
+and the average of the whole population. These lines are from the real run on
+random maps in Part 0:
 
 ```
 generation best_fitness average_fitness
-1 1589.11 553.768
-2 2148.16 618.023
-3 2160.29 765.568
-4 2764.89 836.787
+1 2138.23 891.774
+2 2173.56 1037.92
 ...
-32 2751.52 1313.52
+18 2509.32 1321.49
+...
+36 2387.22 1545.33
 ```
+
+The leader's score jumps about, because each generation plays different maps
+and some are harder than others. The population average is the steadier
+sign: it climbed from about 900 to about 1,550.
 
 Plotted, this is the **learning curve**. It tells you whether training is
 still improving, has levelled off, or has gone wrong.
@@ -586,8 +619,8 @@ Settings that we choose, as opposed to numbers the training finds, are called
 | Population | evolution | 64 | gets stuck early | each generation is slow |
 | Elite kept | evolution | 20% | loses good brains | too little variety |
 | Mutation strength | evolution | 0.05-0.1 | nothing changes | children are random |
-| Seeds per brain | evolution | 2-3 | lucky brains win | each generation is slow |
-| Episode length | evolution | 90-240 s | cannot reach far food | each generation is slow |
+| Maps per generation | evolution | 4 | lucky brains win | each generation is slow |
+| Episode length | evolution | 240 s | cannot reach far food | each generation is slow |
 
 Change one at a time, and keep the training log of each run so runs can be
 compared.
@@ -635,5 +668,5 @@ compared.
 | **Population** | The set of brains being compared in one generation. |
 | **Reinforcement learning** | Learning from rewards earned by the ant's own actions. |
 | **Reward shaping** | Adding smaller rewards for partial progress so learning has a slope to climb. |
-| **Seed** | The number that selects a food layout; same seed, same game. |
+| **Seed** | The number that selects a map; same seed, same map. |
 | **Validation set** | Examples held back from training, used only to check for overfitting. |

@@ -18,6 +18,8 @@
 ///                           pressed) to a file that `ant_train imitate --data` can
 ///                           learn from.
 ///   --show-network          Start with the network view open (key N).
+///   --seed <number>         Start on that map. Without it, each launch picks a
+///                           different random map.
 ///   --screenshot <file.png> [seconds]
 ///                           Skip ahead `seconds` of game time (default 1),
 ///                           save a picture of the window and exit. Handy
@@ -29,6 +31,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <optional>
+#include <random>
 #include <vector>
 
 #include "agent/brain.h"
@@ -59,6 +62,7 @@ constexpr int kScreenshotFrame = 10;
 struct Options {
     bool autopilot = false;
     bool showNetwork = false;
+    std::optional<std::uint32_t> seed;  ///< The first map; empty = pick one at random.
     const char* brainPath = nullptr;  ///< A file name, or "random".
     const char* colonyBrainPath = nullptr;
     const char* saveBrainPath = nullptr;
@@ -77,6 +81,8 @@ Options parseOptions(int argc, char** argv) {
         const bool hasValue = i + 1 < argc;
         if (std::strcmp(argv[i], "--autopilot") == 0) {
             options.autopilot = true;
+        } else if (std::strcmp(argv[i], "--seed") == 0 && hasValue) {
+            options.seed = static_cast<std::uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (std::strcmp(argv[i], "--show-network") == 0) {
             options.showNetwork = true;
         } else if (std::strcmp(argv[i], "--brain") == 0 && hasValue) {
@@ -210,7 +216,11 @@ int main(int argc, char** argv) {
     SetWindowMinSize(960, 600);
 
     {
-        std::uint32_t seed = 1;
+        // Every map is random. A fresh launch starts on a different one each time,
+        // unless a seed was given (screenshots default to map 1 so they are repeatable).
+        std::uint32_t seed = options.seed ? *options.seed
+                                          : (options.screenshotPath != nullptr ? 1u : std::random_device{}() % 100000u);
+        std::printf("Map seed: %u (replay it with --seed %u)\n", seed, seed);
         ant::World world(ant::makePicnicLevel(seed));
         ant::Renderer renderer(world);
 
@@ -237,7 +247,7 @@ int main(int argc, char** argv) {
 
         while (running && !WindowShouldClose()) {
             if (IsKeyPressed(KEY_R)) {
-                world = ant::World(ant::makePicnicLevel(++seed));  // new food layout each restart
+                world = ant::World(ant::makePicnicLevel(++seed));  // a whole new map each restart
             }
             if (IsKeyPressed(KEY_P)) {
                 renderer.toggleScentView();

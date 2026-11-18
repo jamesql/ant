@@ -173,7 +173,7 @@ int runImitate(const Arguments& arguments) {
         std::printf("Teacher: the recording '%s'.\n", dataPath.c_str());
     } else {
         const SeedRange seeds = parseSeeds(arguments.text("--seeds", "1-10"));
-        std::printf("Teacher: the built-in instinct, recorded on layouts %u to %u...\n", seeds.first, seeds.last);
+        std::printf("Teacher: the built-in instinct, recorded on maps %u to %u...\n", seeds.first, seeds.last);
         dataset = ant::recordInstinct(seeds.first, seeds.last);
     }
 
@@ -195,7 +195,7 @@ int runImitate(const Arguments& arguments) {
     if (!storeBrain(*brain, outPath)) {
         return 1;
     }
-    std::printf("\nSaved %s. How it does on layouts it has never seen:\n", outPath.c_str());
+    std::printf("\nSaved %s. How it does on maps it has never seen:\n", outPath.c_str());
     const SeedRange unseen{1000, 1005};
     printScore("this brain", &*brain, unseen, 240.0f);
     printScore("instinct", nullptr, unseen, 240.0f);
@@ -219,6 +219,7 @@ int runEvolve(const Arguments& arguments) {
     settings.episodeSeconds = arguments.number("--seconds", settings.episodeSeconds);
     settings.firstSeed = static_cast<std::uint32_t>(arguments.integer("--first-seed", 1));
     settings.threads = arguments.integer("--threads", 0);
+    settings.finalExamSeeds = arguments.integer("--final-exam", settings.finalExamSeeds);
     const int checkpointEvery = arguments.integer("--checkpoint-every", 10);
 
     // Open the log before the long run, so a bad path is reported straight away.
@@ -228,7 +229,7 @@ int runEvolve(const Arguments& arguments) {
     std::ofstream log(outPath + ".log");
     log << "generation best_fitness average_fitness\n";
 
-    std::printf("Evolving %d brains for %d generations (%d layouts of %.0f s each per brain).\n\n"
+    std::printf("Evolving %d brains for %d generations (%d maps of %.0f s each per brain).\n\n"
                 " generation  best fitness  average fitness\n",
                 settings.population, settings.generations, settings.seedsPerGeneration, settings.episodeSeconds);
 
@@ -248,7 +249,7 @@ int runEvolve(const Arguments& arguments) {
         });
 
     storeBrain(best, outPath);
-    std::printf("\nSaved %s (learning curve in %s.log). How it does on layouts it has never seen:\n", outPath.c_str(),
+    std::printf("\nSaved %s (learning curve in %s.log). How it does on maps it has never seen:\n", outPath.c_str(),
                 outPath.c_str());
     const SeedRange unseen{1000, 1005};
     printScore("this brain", &best, unseen, 240.0f);
@@ -263,7 +264,7 @@ int runScore(const Arguments& arguments) {
     const SeedRange seeds = parseSeeds(arguments.text("--seeds", "1000-1009"));
     const float seconds = arguments.number("--seconds", 240.0f);
 
-    std::printf("Playing layouts %u to %u, %.0f s of game time each, every ant driven by the same brain.\n", seeds.first,
+    std::printf("Playing maps %u to %u, %.0f s of game time each, every ant driven by the same brain.\n", seeds.first,
                 seeds.last, seconds);
     if (source == "instinct") {
         printScore("instinct", nullptr, seeds, seconds);
@@ -287,12 +288,12 @@ void printUsage() {
         "      Train a brain to copy a teacher: the built-in instinct played on the given\n"
         "      food layouts, or a recording of your own play (ant_game --record FILE).\n\n"
         "  ant_train evolve [--start FILE|random] [--generations 40] [--population 64]\n"
-        "                   [--sigma 0.08] [--seeds-per-generation 2] [--seconds 90]\n"
-        "                   [--first-seed 1] [--threads 0] [--checkpoint-every 10]\n"
+        "                   [--sigma 0.08] [--seeds-per-generation 4] [--seconds 240]\n"
+        "                   [--first-seed 1] [--final-exam 16] [--threads 0] [--checkpoint-every 10]\n"
         "                   [--out brains/forager.brain]\n"
-        "      Improve a brain by selection and mutation.\n\n"
+        "      Improve a brain by selection and mutation. Every generation plays new maps.\n\n"
         "  ant_train score [--brain FILE|instinct|random] [--seeds 1000-1009] [--seconds 240]\n"
-        "      Play food layouts with no window and report how the brain did.\n\n"
+        "      Play maps with no window and report how the brain did.\n\n"
         "Watch a trained brain:  ant_game --colony-brain FILE --autopilot\n");
 }
 

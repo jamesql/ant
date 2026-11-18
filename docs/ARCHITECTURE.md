@@ -104,9 +104,23 @@ A `Level` is plain data with no behaviour:
 | `foods` | the food pieces, each with a position, a kind and a state |
 | `timeLimit` | seconds allowed |
 
-`makePicnicLevel(seed)` builds the level. The layout is always the same; only
-the food is scattered randomly (some in the open, most inside the basket). The
-same seed always gives the same scatter, so a game can be replayed exactly.
+`makePicnicLevel(seed)` builds the level, and the whole map is random:
+
+- the **nest** is somewhere on the strip of grass around the blanket;
+- the **basket** has a random size and position, well away from the nest, with
+  its doorway in the corner nearest the nest;
+- up to 10 **obstacles** and up to 4 **poison puddles** are scattered over the
+  blanket;
+- the **food** is scattered last, some in the open and most inside the basket.
+
+Only the sizes of the ground and the blanket are fixed. The same seed always
+gives exactly the same map, so a game can be replayed.
+
+Every map is fair. Things are placed by trial: pick a random spot, and keep it
+only if it leaves walking room (wider than an ant) to everything already
+placed. A test checks 100 maps by "flood fill" from the nest and confirms that
+every piece of food, including the food in the basket, can be reached without
+crossing anything solid or poisonous.
 
 ### 3.3 `World` - the rules
 
@@ -311,7 +325,7 @@ anything.
 | Instinct lives in `core`, apart from `World` | `World` only enforces rules; *deciding* is a separate, replaceable job. |
 | Fixed time step | Deterministic, repeatable games; fair comparisons between networks. |
 | No random numbers during play | Wandering uses smooth sine-wave "noise", so a game replays identically. |
-| Seeded level generation | Same seed, same game; different seeds give variety so a network cannot just memorise one layout. |
+| Fully random, seeded maps | Same seed, same map; different seeds move everything, so a network cannot succeed by memorising where things are. |
 | Circles and thick lines for collision | Simplest possible collision math, and cheap to compute. |
 | Everything painted in code | No asset pipeline, nothing to load from disk. |
 
@@ -358,7 +372,7 @@ tiny home-made framework (`tests/test_framework.h`, three macros: `TEST`,
 | File | What it proves |
 | --- | --- |
 | `test_vec2.cpp` | the vector math is right |
-| `test_level.cpp` | levels are repeatable per seed; food is reachable and safe; the basket has a doorway |
+| `test_level.cpp` | checked across 100 random maps: same seed gives the same map, things have walking room between them, the doorway faces the nest, and every piece of food can be reached from the nest |
 | `test_pheromones.cpp` | scent deposits, evaporates, diffuses, and does not cross solid cells |
 | `test_world.cpp` | each game rule, one at a time, on tiny hand-made levels |
 | `test_instinct.cpp` | single rules of the instinct, and a whole colony foraging the real level with no player |

@@ -23,9 +23,10 @@ struct EvolutionSettings {
     int generations = 40;            ///< Rounds of play, score, select, mutate.
     float eliteShare = 0.2f;         ///< Share of the population kept unchanged as parents.
     float mutationStrength = 0.08f;  ///< Size of the random change made to each number ("sigma").
-    int seedsPerGeneration = 2;      ///< Food layouts each brain plays; its fitness is the average.
-    float episodeSeconds = 90.0f;    ///< Game time per episode.
-    std::uint32_t firstSeed = 1;     ///< Layouts used are firstSeed, firstSeed + 1, ... moving on every generation.
+    int seedsPerGeneration = 4;      ///< Maps each brain plays per generation; its score is the average.
+    int finalExamSeeds = 16;         ///< Extra maps the finalists play at the end to pick the winner; 0 = skip.
+    float episodeSeconds = 240.0f;   ///< Game time per episode.
+    std::uint32_t firstSeed = 1;     ///< Maps used are firstSeed, firstSeed + 1, ... moving on every generation.
     std::uint32_t mutationSeed = 1;  ///< Makes the mutations, and so the whole run, repeatable.
     int threads = 0;                 ///< Episodes played at once; 0 = one per processor core.
     FitnessWeights weights;          ///< What counts as doing well.
@@ -34,8 +35,8 @@ struct EvolutionSettings {
 /// How one generation went.
 struct GenerationReport {
     int generation = 0;
-    float bestFitness = 0.0f;
-    float averageFitness = 0.0f;
+    float bestFitness = 0.0f;     ///< The leader: its average over every generation it has played.
+    float averageFitness = 0.0f;  ///< The whole population, on this generation only.
 };
 
 /// Adds a small random amount to every weight and bias of `network`:
@@ -51,15 +52,20 @@ float averageFitness(const Network& brain, std::uint32_t firstSeed, int seedCoun
 /// Evolves a brain, starting from `start`.
 ///
 /// The first population is `start` plus mutated copies of it. Every
-/// generation, each brain plays the same few food layouts and is scored; the
+/// generation, each brain plays the same few maps and is scored; the
 /// best share (the elite) survive unchanged and the rest are replaced by
-/// mutated copies of elite brains. The layouts change every generation, so a
+/// mutated copies of elite brains. The maps change every generation, so a
 /// brain cannot succeed by memorising one.
 ///
-/// `onGeneration` (if given) is called after each generation with its report
-/// and that generation's best brain.
+/// Because some maps are easier than others, a single good score can be
+/// luck. So brains are ranked by their average over every generation they
+/// have survived, and at the end the elite play a larger "final exam" of
+/// fresh maps to choose the winner.
 ///
-/// @return The best brain of the final generation.
+/// `onGeneration` (if given) is called after each generation with its report
+/// and the current leader.
+///
+/// @return The winner of the final exam.
 Network evolve(const Network& start, const EvolutionSettings& settings,
                const std::function<void(const GenerationReport&, const Network&)>& onGeneration = nullptr);
 
