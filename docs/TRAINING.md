@@ -644,6 +644,10 @@ other, and a strong new push upsets that balance. A graft is best used as a
 starting point: add the neuron, then let evolution (`--start`) adjust
 everything around it.
 
+For a gallery of brains made entirely this way, see
+[brains/weird/README.md](../brains/weird/README.md): seven ants with strange
+habits, each listed with the exact weights that were changed.
+
 ### 5.6 Other things you can do with finished brains
 
 | Operation | What it does |

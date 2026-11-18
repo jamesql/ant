@@ -9,7 +9,8 @@
 ///   score    Plays unseen maps with no window and reports how a brain did.
 ///   inspect  Finds out what each neuron and sense of a brain is for.
 ///   graft    Adds a hand-made neuron to a brain and measures the effect.
-///   silence  Removes one neuron from a brain and measures the effect.
+///   silence  Fixes one neuron or sense at a constant and measures the effect.
+///   behaviour Describes what a colony driven by a brain is like.
 
 #include <cstdint>
 #include <cstdio>
@@ -418,14 +419,16 @@ int runGraft(const Arguments& arguments) {
     }
     std::printf("\n");
 
-    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
-    const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
-    const ant::AverageResult after = ant::averageResult(grafted, seeds.first, seeds.count());
-    std::printf("            food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
-    std::printf("before      %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate, before.pickups,
-                before.deaths);
-    std::printf("with neuron %9.2f  %4.0f%%  %8.1f  %7.2f\n", after.delivered, 100.0f * after.winRate, after.pickups,
-                after.deaths);
+    if (arguments.integer("--score", 1) != 0) {
+        const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
+        const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
+        const ant::AverageResult after = ant::averageResult(grafted, seeds.first, seeds.count());
+        std::printf("            food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
+        std::printf("before      %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate,
+                    before.pickups, before.deaths);
+        std::printf("with neuron %9.2f  %4.0f%%  %8.1f  %7.2f\n", after.delivered, 100.0f * after.winRate, after.pickups,
+                    after.deaths);
+    }
 
     const std::string outPath = arguments.text("--out", "");
     if (!outPath.empty() && storeBrain(grafted, outPath)) {
@@ -434,33 +437,69 @@ int runGraft(const Arguments& arguments) {
     return 0;
 }
 
-/// `silence`: removes one hidden neuron's information from a brain and reports the effect.
+/// `silence`: replaces one hidden neuron or one sense with a constant and reports the effect.
 int runSilence(const Arguments& arguments) {
     const std::optional<ant::Network> loaded = openBrain(arguments.text("--brain", "brains/forager.brain"), 1);
     if (!loaded) {
         return 1;
     }
-    const int neuron = arguments.integer("--neuron", 1);  // numbered from 1, as `inspect` prints them
-    if (neuron < 1 || neuron > loaded->layers()[0].weights.rows()) {
-        std::printf("This brain has hidden neurons 1 to %d.\n", loaded->layers()[0].weights.rows());
+    // Exactly one of these chooses the part: a hidden neuron (numbered from 1,
+    // as `inspect` prints them) or a sense (numbered from 0).
+    const int neuron = arguments.integer("--neuron", 0);
+    const int sense = arguments.integer("--sense", -1);
+    const bool isSense = sense >= 0;
+    if (isSense ? sense >= ant::kSenseCount : (neuron < 1 || neuron > loaded->layers()[0].weights.rows())) {
+        std::printf("Give --neuron 1..%d or --sense 0..%d.\n", loaded->layers()[0].weights.rows(), ant::kSenseCount - 1);
         return 1;
     }
-    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
-    const ant::Activations usual = ant::averageActivations(*loaded, ant::sampleObservations(*loaded, seeds.first, 6));
-    const ant::Network damaged = ant::silenced(*loaded, 1, neuron - 1, usual[1][static_cast<std::size_t>(neuron - 1)]);
+    const int layer = isSense ? 0 : 1;
+    const int index = isSense ? sense : neuron - 1;
 
-    const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
-    const ant::AverageResult after = ant::averageResult(damaged, seeds.first, seeds.count());
-    std::printf("              food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
-    std::printf("before        %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate, before.pickups,
-                before.deaths);
-    std::printf("h%-2d silenced  %9.2f  %4.0f%%  %8.1f  %7.2f\n", neuron, after.delivered, 100.0f * after.winRate,
-                after.pickups, after.deaths);
+    // The constant that replaces the part: a value you choose, or else its usual (average) value.
+    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
+    const std::string chosen = arguments.text("--value", "");
+    float value = static_cast<float>(std::atof(chosen.c_str()));
+    if (chosen.empty()) {
+        const ant::Activations usual = ant::averageActivations(*loaded, ant::sampleObservations(*loaded, seeds.first, 6));
+        value = usual[static_cast<std::size_t>(layer)][static_cast<std::size_t>(index)];
+    }
+    const ant::Network damaged = ant::silenced(*loaded, layer, index, value);
+    const std::string label = isSense ? std::string("sense '") + ant::senseName(sense) + "'" : "neuron h" + std::to_string(neuron);
+    std::printf("%s is now fixed at %+.2f.\n", label.c_str(), value);
+
+    if (arguments.integer("--score", 1) != 0) {
+        const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
+        const ant::AverageResult after = ant::averageResult(damaged, seeds.first, seeds.count());
+        std::printf("          food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
+        std::printf("before    %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate, before.pickups,
+                    before.deaths);
+        std::printf("after     %9.2f  %4.0f%%  %8.1f  %7.2f\n", after.delivered, 100.0f * after.winRate, after.pickups,
+                    after.deaths);
+    }
 
     const std::string outPath = arguments.text("--out", "");
     if (!outPath.empty() && storeBrain(damaged, outPath)) {
         std::printf("Saved %s.\n", outPath.c_str());
     }
+    return 0;
+}
+
+/// `behaviour`: describes what a colony driven by a brain is like, in numbers.
+int runBehaviour(const Arguments& arguments) {
+    const std::optional<ant::Network> loaded = openBrain(arguments.text("--brain", "brains/forager.brain"), 1);
+    if (!loaded) {
+        return 1;
+    }
+    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40049"));
+    const ant::Behaviour b = ant::measureBehaviour(*loaded, seeds.first, seeds.count());
+    if (arguments.integer("--header", 1) != 0) {
+        std::printf("%-16s %5s %7s %6s %8s %9s %9s %6s %9s %9s\n", "brain", "food", "pickups", "deaths", "poison s",
+                    "poisoned", "from nest", "edge", "turns/min", "backwards");
+        std::printf("%-16s %5s %7s %6s %8s %9s %9s %6s %9s %9s\n", "", "", "", "", "", "homecoming", "", "", "", "");
+    }
+    std::printf("%-16s %5.1f %7.1f %6.2f %8.1f %9.1f %9.1f %5.0f%% %+9.1f %8.0f%%\n", loaded->name.c_str(), b.delivered,
+                b.pickups, b.deaths, b.poisonSeconds, b.poisonedHomecomings, b.nestDistance, 100.0f * b.edgeShare, b.spin,
+                100.0f * b.backwardShare);
     return 0;
 }
 
@@ -503,6 +542,9 @@ int main(int argc, char** argv) {
     }
     if (command == "inspect") {
         return runInspect(arguments);
+    }
+    if (command == "behaviour") {
+        return runBehaviour(arguments);
     }
     if (command == "silence") {
         return runSilence(arguments);

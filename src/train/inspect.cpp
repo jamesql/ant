@@ -4,6 +4,7 @@
 #include "train/inspect.h"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "agent/brain.h"
@@ -32,6 +33,79 @@ AverageResult averageResult(const Network& brain, std::uint32_t firstSeed, int s
     average.winRate /= games;
     average.pickups /= games;
     average.deaths /= games;
+    return average;
+}
+
+Behaviour measureBehaviour(const Network& brain, std::uint32_t firstSeed, int seedCount, float seconds) {
+    constexpr float kEdgeBand = 0.75f;        // "pressed against the edge" means this close to it
+    constexpr float kPoisonedBelow = 0.98f;   // health under this counts as poisoned
+
+    std::vector<Behaviour> games(static_cast<std::size_t>(seedCount));
+    parallelFor(games.size(), 0, [&](std::size_t game) {
+        World world(makePicnicLevel(firstSeed + static_cast<std::uint32_t>(game)));
+        const Level& level = world.level();
+        const std::size_t antCount = world.ants().size();
+        std::vector<AntAction> actions(antCount);
+        Behaviour& result = games[game];
+        float antSteps = 0.0f;  // how many (ant, step) moments were counted
+
+        const int steps = static_cast<int>(seconds / kEpisodeStep);
+        for (int step = 0; step < steps && world.status() == GameStatus::Playing; ++step) {
+            std::vector<Ant> before = world.ants();
+            for (std::size_t i = 0; i < antCount; ++i) {
+                actions[i] = brainAction(brain, world, i);
+            }
+            world.step(actions, kEpisodeStep);
+
+            for (std::size_t i = 0; i < antCount; ++i) {
+                const Ant& was = before[i];
+                const Ant& now = world.ants()[i];
+                result.deaths += (was.alive && !now.alive) ? 1.0f : 0.0f;
+                result.pickups += (!was.carriedFood && now.carriedFood) ? 1.0f : 0.0f;
+                if (!was.alive || !now.alive) {
+                    continue;
+                }
+                const bool wasHome = distance(was.position, level.nest.position) <= level.nest.radius;
+                const bool isHome = distance(now.position, level.nest.position) <= level.nest.radius;
+                result.poisonedHomecomings += (!wasHome && isHome && was.health < kPoisonedBelow) ? 1.0f : 0.0f;
+                result.poisonSeconds += world.isPoisoned(now.position) ? kEpisodeStep : 0.0f;
+                result.nestDistance += distance(now.position, level.nest.position);
+                const float toEdge = std::min(level.areaHalfSize.x - std::fabs(now.position.x),
+                                              level.areaHalfSize.y - std::fabs(now.position.y));
+                result.edgeShare += toEdge < kEdgeBand ? 1.0f : 0.0f;
+                result.spin += wrapAngle(now.heading - was.heading);
+                result.backwardShare += actions[i].forward < 0.0f ? 1.0f : 0.0f;
+                antSteps += 1.0f;
+            }
+        }
+        result.delivered = static_cast<float>(world.deliveredCount());
+        if (antSteps > 0.0f) {
+            result.nestDistance /= antSteps;
+            result.edgeShare /= antSteps;
+            result.backwardShare /= antSteps;
+            // Radians per ant-step -> full turns per minute.
+            result.spin = result.spin / antSteps / kEpisodeStep * 60.0f / (2.0f * kPi);
+        }
+    });
+
+    Behaviour average;
+    for (const Behaviour& game : games) {
+        average.delivered += game.delivered;
+        average.pickups += game.pickups;
+        average.deaths += game.deaths;
+        average.poisonSeconds += game.poisonSeconds;
+        average.poisonedHomecomings += game.poisonedHomecomings;
+        average.nestDistance += game.nestDistance;
+        average.edgeShare += game.edgeShare;
+        average.spin += game.spin;
+        average.backwardShare += game.backwardShare;
+    }
+    const float count = static_cast<float>(std::max<std::size_t>(1, games.size()));
+    for (float* value : {&average.delivered, &average.pickups, &average.deaths, &average.poisonSeconds,
+                         &average.poisonedHomecomings, &average.nestDistance, &average.edgeShare, &average.spin,
+                         &average.backwardShare}) {
+        *value /= count;
+    }
     return average;
 }
 

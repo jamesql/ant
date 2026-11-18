@@ -139,5 +139,8 @@ Brain files are plain text, so the Windows game loads brains trained in WSL.
   are put together.
 - [docs/NEURAL_NETWORK.md](docs/NEURAL_NETWORK.md) - what a neural network is
   and all the math behind it.
+- [brains/weird/README.md](brains/weird/README.md) - seven hand-edited brains with
+  strange habits (a spinner, a moonwalker, a poison courier...) and exactly
+  which weights were changed to make each.
 - [docs/TRAINING.md](docs/TRAINING.md) - how a network is trained to drive
   an ant, what training produces, and how to shape an ant's behaviour.

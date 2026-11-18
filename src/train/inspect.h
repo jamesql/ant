@@ -34,6 +34,24 @@ struct AverageResult {
 /// `brain` driving every ant, and averages the results.
 AverageResult averageResult(const Network& brain, std::uint32_t firstSeed, int seedCount, float seconds = 240.0f);
 
+/// How a colony behaves, averaged over several games. Where `AverageResult`
+/// says how *well* a brain does, this describes *what it is like*.
+struct Behaviour {
+    float delivered = 0.0f;           ///< Pieces of food brought home per game.
+    float pickups = 0.0f;             ///< Times an ant picked food up, per game.
+    float deaths = 0.0f;              ///< Ants lost to poison, per game.
+    float poisonSeconds = 0.0f;       ///< Ant-seconds spent standing in poison, per game.
+    float poisonedHomecomings = 0.0f; ///< Times an ant walked into the nest while poisoned, per game.
+    float nestDistance = 0.0f;        ///< Average distance of an ant from the nest, in world units.
+    float edgeShare = 0.0f;           ///< Share of the time an ant is pressed against the edge of the map.
+    float spin = 0.0f;                ///< Average turning, in full turns per minute (+ = clockwise from above).
+    float backwardShare = 0.0f;       ///< Share of the time an ant is walking backwards.
+};
+
+/// Plays `seedCount` maps starting at `firstSeed` (several at once) with
+/// `brain` driving every ant, and describes how the colony behaved.
+Behaviour measureBehaviour(const Network& brain, std::uint32_t firstSeed, int seedCount, float seconds = 240.0f);
+
 /// Plays `seedCount` maps with `brain` and returns what the ants sensed on
 /// every `stepInterval`-th step: a sample of the situations this brain
 /// really gets into.
