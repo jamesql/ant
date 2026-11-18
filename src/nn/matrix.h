@@ -37,4 +37,12 @@ private:
 /// `vector` must have exactly `matrix.columns()` entries.
 std::vector<float> multiply(const Matrix& matrix, const std::vector<float>& vector);
 
+/// Transposed matrix times vector: the same as flipping the matrix so its
+/// rows become columns, then multiplying. The result has one number per column.
+///
+/// Backpropagation uses this to send each neuron's error back along the same
+/// connections the signal came forward on. `vector` must have exactly
+/// `matrix.rows()` entries.
+std::vector<float> multiplyTransposed(const Matrix& matrix, const std::vector<float>& vector);
+
 }  // namespace ant

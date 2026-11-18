@@ -2,9 +2,8 @@
 /// @brief A fully connected neural network: the forward pass, and brain files.
 ///
 /// This is the "function with adjustable numbers" from docs/NEURAL_NETWORK.md.
-/// It can be created with random numbers, run, saved and loaded. It cannot
-/// learn yet; training comes later and will only change the numbers stored
-/// here.
+/// It can be created with random numbers, run, saved and loaded, and it can
+/// learn from examples by backpropagation and gradient descent.
 
 #pragma once
 
@@ -26,6 +25,14 @@ struct Layer {
 /// The values of every neuron during one forward pass.
 /// Entry 0 is the network's input; the last entry is its output.
 using Activations = std::vector<std::vector<float>>;
+
+/// For every weight and bias of a network, how much the loss changes when
+/// that number changes. Stored in the same shape as the network's layers.
+using Gradients = std::vector<Layer>;
+
+/// The loss for one example: `1/2 * sum of (output - target)^2`.
+/// Zero means the output matched the target exactly.
+float squaredError(const std::vector<float>& output, const std::vector<float>& target);
 
 /// A stack of layers. Every neuron uses the `tanh` activation function.
 class Network {
@@ -54,7 +61,36 @@ public:
     /// Runs the forward pass and returns only the output layer's values.
     std::vector<float> forward(const std::vector<float>& input) const;
 
+    /// A set of gradients with the same shape as this network, all zero.
+    Gradients zeroGradients() const;
+
+    /// Backpropagation for one training example.
+    ///
+    /// Runs the forward pass on `input`, compares the output with `target`,
+    /// and works out, for every weight and bias, how the loss would change
+    /// if that number were nudged up (its gradient). The gradients are
+    /// *added* to `sum`, so calling this for several examples in a row
+    /// accumulates them for a mini-batch.
+    ///
+    /// The steps are those of docs/NEURAL_NETWORK.md section 3.6:
+    ///   delta[last] = (a[last] - y) .* (1 - a[last]^2)
+    ///   delta[l]    = (transpose(W[l+1]) * delta[l+1]) .* (1 - a[l]^2)
+    ///   dL/dW[l]    = delta[l] * transpose(a[l-1])
+    ///   dL/db[l]    = delta[l]
+    /// where `1 - a^2` is the slope of `tanh`.
+    ///
+    /// @return This example's loss (see `squaredError`).
+    float addGradients(const std::vector<float>& input, const std::vector<float>& target, Gradients& sum) const;
+
+    /// Gradient descent: moves every weight and bias a small step against
+    /// its gradient, `w <- w - stepSize * gradient`. For a mini-batch whose
+    /// gradients were accumulated, pass `learningRate / batchSize` to use
+    /// their average.
+    void descend(const Gradients& gradients, float stepSize);
+
     const std::vector<Layer>& layers() const { return layers_; }
+    /// Direct access to the numbers, for code that changes them (mutation).
+    std::vector<Layer>& layers() { return layers_; }
     int inputCount() const { return layers_.front().weights.columns(); }
     int outputCount() const { return layers_.back().weights.rows(); }
 

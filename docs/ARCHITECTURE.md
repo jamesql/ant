@@ -39,7 +39,7 @@ time, which is what lets a network practise thousands of games in seconds.
 ## 2. Folder layout
 
 ```
-CMakeLists.txt        build script (5 targets, see section 9)
+CMakeLists.txt        build script (7 targets, see section 9)
 src/
   core/               the simulation - pure C++, no graphics
     vec2.h              2D vector math
@@ -63,11 +63,13 @@ src/
   agent/              connects a network to an ant
     senses.h / .cpp     what an ant perceives, as 22 numbers
     brain.h / .cpp      senses -> network -> AntAction
-tests/                unit tests for core/, nn/ and agent/
+  train/              teaches a network: episodes, datasets, imitation, evolution
+tests/                unit tests for core/, nn/, agent/ and train/
 docs/                 this document and the neural network guides
 ```
 
-Dependency rule: `core` and `nn` depend on nothing. `agent` depends on both.
+Dependency rule: `core` and `nn` depend on nothing. `agent` depends on both,
+and `train` on `agent`.
 `render` depends on `core`, `nn` and raylib. `app` depends on all of them.
 Nothing ever points back toward `app`.
 
@@ -349,7 +351,7 @@ Nothing in the code describes steps 3 to 5. They emerge.
 
 ## 8. Tests (`tests/`)
 
-Everything except drawing is tested: the rules, the network and the senses. The tests use a
+Everything except drawing is tested: the rules, the network, the senses and training. The tests use a
 tiny home-made framework (`tests/test_framework.h`, three macros: `TEST`,
 `CHECK`, `CHECK_NEAR`), so there is no test library to install.
 
@@ -362,6 +364,7 @@ tiny home-made framework (`tests/test_framework.h`, three macros: `TEST`,
 | `test_instinct.cpp` | single rules of the instinct, and a whole colony foraging the real level with no player |
 | `test_network.cpp` | matrix math, the forward pass (including the worked example from the guide), random starting weights, and saving and loading brain files |
 | `test_senses.cpp` | each sense reacts to the one thing it should; a network can drive an ant |
+| `test_training.cpp` | backpropagation (against the guide's worked example and against a gradient check), learning XOR, headless episodes and fitness, recording and loading examples, imitation, mutation, and a repeatable evolution run |
 
 Run them with `ctest --test-dir build -C Release --output-on-failure`.
 
@@ -372,8 +375,10 @@ Run them with `ctest --test-dir build -C Release --output-on-failure`.
 | `ant_core` | static library: `src/core` | nothing |
 | `ant_nn` | static library: `src/nn` | nothing |
 | `ant_agent` | static library: `src/agent` | `ant_core`, `ant_nn` |
-| `ant_tests` | the unit tests | `ant_agent` |
-| `ant_game` | the playable game | `ant_agent`, raylib |
+| `ant_training` | static library: `src/train` | `ant_agent` |
+| `ant_train` | the training tool | `ant_training` |
+| `ant_tests` | the unit tests | `ant_training` |
+| `ant_game` | the playable game | `ant_training`, raylib |
 
 `ant_nn` deliberately knows nothing about ants: it is plain math that could
 drive anything. `ant_agent` is the thin layer that says "these 22 numbers are
@@ -394,7 +399,7 @@ World --observe()--> 22 numbers --Network::run()--> every neuron's value --> Ant
 - The network view asks the network what it would do *right now*, whoever is
   driving, and draws every neuron and connection. So you can watch its
   reaction while playing by hand, then press `B` and let it take over.
-- The network cannot learn yet. See [NEURAL_NETWORK.md](NEURAL_NETWORK.md) for
+- Training happens outside the game, in `ant_train`. See [NEURAL_NETWORK.md](NEURAL_NETWORK.md) for
   the math and [TRAINING.md](TRAINING.md) for how it will be trained.
 
 ## 10. What is not simulated (yet)

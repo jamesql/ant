@@ -10,9 +10,11 @@ follows a few simple rules and communicates only by leaving scent trails
 (pheromones) on the ground. You can see those trails, add to them, and lead
 the colony to food.
 
-The project also contains a neural network written from scratch, which can
-already drive an ant and be watched live. Teaching it to drive *well* is the
-next step.
+The project also contains a neural network written from scratch, with no
+machine-learning libraries. It learns to drive the ants, and you can watch it
+think. A network
+trained here (included in `brains/`) carries home as much food as the
+hand-written rules.
 
 ## Build and run
 
@@ -42,12 +44,11 @@ instinct too):
 build/Release/ant_game.exe --autopilot
 ```
 
-To watch a neural network drive your ant, with a live view of it "thinking".
-The network is untrained for now (its numbers are random), so expect it to
-stagger about; press `G` for a different random one:
+To watch a trained neural network drive the whole colony, with a live view of
+it "thinking" (key `N` hides the view, `B` gives you back control of your ant):
 
 ```bash
-build/Release/ant_game.exe --brain random
+build/Release/ant_game.exe --brain brains/forager.brain --colony-brain brains/forager.brain
 ```
 
 | Option | Effect |
@@ -55,8 +56,50 @@ build/Release/ant_game.exe --brain random
 | `--autopilot` | Your ant follows the built-in instinct. |
 | `--brain <file>` | A network loaded from a brain file drives your ant. |
 | `--brain random` | A random, untrained network drives your ant. |
+| `--colony-brain <file>` | A network drives the other nine ants in place of their instinct. |
+| `--record <file>` | Record your own play, for a network to learn from. |
 | `--save-brain <file>` | Write the current network to a brain file. |
 | `--show-network` | Start with the network view open. |
+
+## Training a brain
+
+`ant_train` trains and scores brains with no window. Run it with no arguments
+for the full list of options.
+
+```bash
+build/Release/ant_train.exe xor
+```
+
+```bash
+build/Release/ant_train.exe imitate --seeds 1-20 --out brains/copycat.brain
+```
+
+```bash
+build/Release/ant_train.exe evolve --start brains/copycat.brain --seconds 240 --seeds-per-generation 3 --first-seed 100 --out brains/forager.brain
+```
+
+```bash
+build/Release/ant_train.exe score --brain brains/forager.brain --seeds 1000-1019
+```
+
+On 20 food layouts it never trained on, the included `forager` brain delivers
+13.1 of 14 pieces per game; the hand-written instinct delivers 12.9. See
+[docs/TRAINING.md](docs/TRAINING.md) for how it was made.
+
+**If Windows refuses to run `ant_train.exe` or `ant_tests.exe`** ("An
+Application Control policy has blocked this file"), Smart App Control is
+blocking a freshly built, unsigned program. Build and run them in WSL
+instead; from the project folder inside WSL:
+
+```bash
+cmake -S . -B ~/ant-build -DANT_BUILD_GAME=OFF -DCMAKE_BUILD_TYPE=Release && cmake --build ~/ant-build -j
+```
+
+```bash
+~/ant-build/ant_tests && ~/ant-build/ant_train xor
+```
+
+Brain files are plain text, so the Windows game loads brains trained in WSL.
 
 ## Controls
 
@@ -94,5 +137,5 @@ build/Release/ant_game.exe --brain random
   are put together.
 - [docs/NEURAL_NETWORK.md](docs/NEURAL_NETWORK.md) - what a neural network is
   and all the math behind it.
-- [docs/TRAINING.md](docs/TRAINING.md) - how we will train a network to drive
+- [docs/TRAINING.md](docs/TRAINING.md) - how a network is trained to drive
   an ant, what training produces, and how to shape an ant's behaviour.

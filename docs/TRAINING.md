@@ -8,11 +8,88 @@ math inside it. This document covers everything around it:
 3. how to use it
 4. how to shape it, for example "an ant that only goes after berries"
 
-Training itself is not built yet. What already exists is the network, the
-brain file format and `ant_game --brain` (see NEURAL_NETWORK.md, 4.2 and 4.4).
-The `ant_train` commands and the other options below are the plan, and
-details may change as we build. Terms are defined where they first appear and
-collected in a glossary at the end.
+Imitation learning and neuroevolution are built and working; Part 0 shows how
+to run them and what they achieved. A few ideas later in this document are
+still plans, and each is marked "not built yet". Terms are defined where they
+first appear and collected in a glossary at the end.
+
+---
+
+## Part 0 - Quick start: train a brain and watch it
+
+### 0.1 The commands
+
+The training tool is `ant_train`. Run it with no arguments for its options.
+
+```
+ant_train xor                                             prove the learning math works
+ant_train imitate --seeds 1-20 --out brains/copycat.brain copy the instinct
+ant_train evolve  --start brains/copycat.brain --seconds 240 --seeds-per-generation 3 \
+                  --first-seed 100 --out brains/forager.brain
+ant_train score   --brain brains/forager.brain --seeds 1000-1019
+```
+
+Then watch the result in the game, with the same brain driving your ant and
+the other nine:
+
+```
+ant_game --brain brains/forager.brain --colony-brain brains/forager.brain
+```
+
+Both brains produced by these commands are included in the `brains/` folder,
+so the last command works without training anything.
+
+**If Windows blocks `ant_train.exe`** ("An Application Control policy has
+blocked this file"), that is Smart App Control refusing a freshly built,
+unsigned program. Build and run the tool inside WSL instead; brain files are
+plain text, so the Windows game loads them unchanged. From the project folder
+inside WSL:
+
+```
+cmake -S . -B ~/ant-build -DANT_BUILD_GAME=OFF -DCMAKE_BUILD_TYPE=Release
+cmake --build ~/ant-build -j
+~/ant-build/ant_train xor
+```
+
+### 0.2 What happened when we ran it
+
+Measured on 20 food layouts that no brain was trained on (seeds 1000-1019),
+full 4-minute games, every ant in the colony driven by the same brain:
+
+| Brain | How it was made | Food delivered per game (of 14) | Games won (of 20) |
+| --- | --- | --- | --- |
+| random | untrained | 0.0 | 0 |
+| `copycat` | imitation of the instinct, 30 epochs (24 seconds) | 6.4 | 1 |
+| `forager` | `copycat`, then 32 generations of evolution (about 11 minutes) | 13.1 | 12 |
+| the instinct | hand-written rules | 12.9 | 16 |
+
+What this shows:
+
+- **Imitation alone gets part-way.** The loss fell from 0.124 to 0.078 and the
+  colony went from delivering nothing to delivering almost half the food. It
+  does not match its teacher, for the reasons given in 2.1 (drift, and a
+  teacher whose wandering depends on things the network cannot sense).
+- **Evolution closes the gap.** Starting from `copycat`, the best fitness went
+  from about 1,600 to about 2,750 in four generations and stayed there. The
+  result carries home as much food as the hand-written rules, though it wins
+  outright (all 14 in time) a little less often.
+- **It generalises.** None of the 20 scoring layouts were seen in training.
+
+The exact numbers will differ slightly from one compiler to another, because
+shuffling the examples is not done identically everywhere.
+
+### 0.3 Teaching it your own way of playing
+
+```
+ant_game --record my-play.examples          play normally; your play is saved when you quit
+ant_train imitate --data my-play.examples --out brains/me.brain
+ant_game --brain brains/me.brain
+```
+
+Recording stores what your ant sensed and which keys you held, every step.
+A few minutes of play gives several thousand examples. Starting from an
+existing brain (`--start brains/forager.brain`) and then imitating you nudges
+that brain toward your habits instead of starting from nothing.
 
 ---
 
@@ -64,12 +141,12 @@ One complete game like this is called an **episode**.
 
 `World::step` takes one action per ant, so we can choose:
 
+- **A whole colony sharing one brain.** Every ant runs the same network. This
+  is what `ant_train` does. It is the real test (can the brain replace the
+  instinct entirely?), and ten ants per game give ten times the experience.
 - **One learner among instinct ants.** The brain drives ant 0; the other nine
-  use the built-in instinct. The learner gets a working colony around it
-  (trails to follow, a living example). This is where we start.
-- **A whole colony sharing one brain.** Every ant runs the same network.
-  Harder, because trails only exist if the brain learns to make them useful,
-  but it is the real test: can the brain replace the instinct entirely?
+  use the built-in instinct. The game can do this (`ant_game --brain FILE`),
+  but training in this mode is not built yet.
 
 ### 1.3 Seeds, and why we never train on just one
 
@@ -204,24 +281,26 @@ New terms:
   `sigma` is the **mutation strength**. A typical value is 0.05 to 0.1. Too
   large and children are nothing like their parents (random search); too
   small and nothing ever changes.
-- **Crossover** (optional) builds a child from two parents by taking each
+- **Crossover** (optional, not built yet) builds a child from two parents by taking each
   number from one or the other at random.
 
 **The fitness function is where you say what you want.** A starting point for
 "be a good forager":
 
 ```
-fitness =  100 * pieces of food this ant delivered
-        +   25 * pieces of food this ant picked up
-        +    2 * progress toward its current goal, in world units
-        -   40 * times this ant died
+fitness =  100 * pieces of food the colony delivered
+        +   25 * times an ant picked food up
+        +    2 * world units by which carried food got closer to the nest
+        -   40 * times an ant died
         +    1 * seconds left on the clock, if the colony won
 ```
+
+These five numbers are the `FitnessWeights` struct in `src/train/episode.h`.
 
 Each line exists for a reason:
 
 - **Delivered** is the actual goal.
-- **Picked up** and **progress** are stepping stones. A random brain almost
+- **Picked up** and **carried closer** are stepping stones. A random brain almost
   never delivers anything, so if delivery were the only thing rewarded, every
   brain in the first generation would score zero and evolution would have
   nothing to select. Smaller rewards for getting part-way give it a slope to
@@ -245,7 +324,7 @@ The adjusting is done with backpropagation.
 
 It combines the strengths of the other two (it uses gradients like imitation,
 and needs no teacher like evolution), and it is also the most intricate to
-get right. We will plan it in detail once the first two methods work.
+get right. It is **not built yet**.
 
 ### 2.4 The order we will do them in
 
@@ -254,7 +333,7 @@ get right. We will plan it in detail once the first two methods work.
 2. Imitate you              the ant picks up your habits
 3. Evolve from there        start the population from the imitation brain,
                             so generation 1 already forages a bit
-4. Reinforcement learning   later
+4. Reinforcement learning   later (not built yet)
 ```
 
 Starting evolution from an imitation brain instead of random numbers skips
@@ -298,14 +377,17 @@ from one ant to another.
 
 ### 3.2 The training log
 
-Alongside the brain, training writes a log, one line per epoch or generation:
+Alongside the brain, evolution writes a log (`forager.brain.log`), one line per
+generation. These are the first lines of the real run from Part 0:
 
 ```
-generation  best_fitness  average_fitness  unseen_seed_score
-         1          31.0              4.2               18.5
-         2          44.5              9.8               22.0
-       ...
-       120         612.0            388.1              540.3
+generation best_fitness average_fitness
+1 1589.11 553.768
+2 2148.16 618.023
+3 2160.29 765.568
+4 2764.89 836.787
+...
+32 2751.52 1313.52
 ```
 
 Plotted, this is the **learning curve**. It tells you whether training is
@@ -313,8 +395,8 @@ still improving, has levelled off, or has gone wrong.
 
 ### 3.3 Checkpoints
 
-Every so often training saves the current best brain as a **checkpoint**
-(`forager-gen050.brain`, `forager-gen100.brain`, ...). They let you:
+Every 10 generations evolution saves the current best brain as a **checkpoint**
+(`forager-gen010.brain`, `forager-gen020.brain`, ...). They let you:
 
 - watch how behaviour developed over time,
 - go back if a later change made things worse,
@@ -324,16 +406,11 @@ Every so often training saves the current best brain as a **checkpoint**
 
 ## Part 4 - Using a brain
 
-`ant_game --brain` works today (with an untrained or hand-saved brain). The
-rest are planned commands, and names may change:
-
 ```
-ant_train imitate --teacher instinct --seeds 1-50 --out brains/copycat.brain
-ant_train evolve  --start brains/copycat.brain --generations 200 --out brains/forager.brain
-ant_train score   --brain brains/forager.brain --seeds 1000-1019
+ant_train score --brain brains/forager.brain --seeds 1000-1019
 
-ant_game --brain brains/forager.brain            your ant is driven by the brain   (works today)
-ant_game --colony-brain brains/forager.brain     every other ant is driven by it   (planned)
+ant_game --brain brains/forager.brain            your ant is driven by the brain
+ant_game --colony-brain brains/forager.brain     every other ant is driven by it
 ```
 
 - **`score`** plays unseen seeds with no window and prints the numbers that
@@ -367,7 +444,14 @@ weights, and each weight takes part in many behaviours. Changing one number
 by hand changes a little of everything and usually makes the ant worse.
 
 So we do not edit the brain directly. We change what it is trained *on* and
-let training find the numbers. The three levers from Part 1:
+let training find the numbers. The three levers from Part 1 follow.
+
+What you can do today: change the five fitness numbers in
+`src/train/episode.h` and rebuild (lever 2), train on your own recorded play
+(lever 2), and start any run from an existing brain with `--start` (lever 3).
+The rest of this part describes extensions that are **not built yet**: senses
+that tell food kinds apart, fitness rules that depend on the kind of food,
+command inputs, and switching a sense off.
 
 ### 5.1 Lever 1 - Senses: an ant cannot act on what it cannot perceive
 
@@ -495,15 +579,15 @@ Settings that we choose, as opposed to numbers the training finds, are called
 
 | Setting | Used in | Typical | If too small | If too large |
 | --- | --- | --- | --- | --- |
-| Learning rate | imitation | 0.01 | learns very slowly | loss jumps around or explodes |
+| Learning rate | imitation | 0.05 | learns very slowly | loss jumps around or explodes |
 | Mini-batch size | imitation | 32 | noisy, slow | fewer updates per epoch |
 | Epochs | imitation | 20-100 | under-trained | memorises (overfits) |
 | Hidden neurons | all | 16 | cannot represent the behaviour | slow; memorises more easily |
-| Population | evolution | 100 | gets stuck early | each generation is slow |
+| Population | evolution | 64 | gets stuck early | each generation is slow |
 | Elite kept | evolution | 20% | loses good brains | too little variety |
 | Mutation strength | evolution | 0.05-0.1 | nothing changes | children are random |
-| Seeds per brain | evolution | 3-5 | lucky brains win | each generation is slow |
-| Episode length | evolution | 60-120 s | cannot reach far food | each generation is slow |
+| Seeds per brain | evolution | 2-3 | lucky brains win | each generation is slow |
+| Episode length | evolution | 90-240 s | cannot reach far food | each generation is slow |
 
 Change one at a time, and keep the training log of each run so runs can be
 compared.

@@ -3,10 +3,9 @@
 This document explains what a neural network is, every piece of math it needs,
 and how the one in this project, which drives an ant in Ant Picnic, is built.
 
-What exists today: the network itself (Parts 1 and 2) runs in the game and
-can be watched live. What does not exist yet: learning (Part 3). Until then
-the network's numbers are random, so it behaves randomly. Section 4.2 lists
-exactly what is built.
+What exists today: all of it. The network runs in the game and can be watched
+live (Parts 1 and 2), and it can learn (Part 3). Section 4.2 lists what is
+built, and [TRAINING.md](TRAINING.md) covers how to train a brain.
 
 Read it top to bottom. Every term is defined the first time it appears, and
 there is a glossary at the end.
@@ -444,11 +443,11 @@ Each stage is small, tested, and ends with something you can see working.
 | --- | --- | --- | --- |
 | 1 | **built** | `Matrix`: a grid of numbers, and matrix times vector | unit tests against hand-computed values |
 | 2 | **built** | `Network`: layers, forward pass | reproduces the worked example in 3.5 |
-| 3 | next | Backpropagation and gradient descent (adds transpose to `Matrix`) | gradient checking (3.8); learns XOR |
+| 3 | **built** | Backpropagation and gradient descent | gradient checking (3.8); learns XOR |
 | 4 | **built** | Senses: build the 22-number observation from a `World` | unit tests on hand-made levels |
 | 5 | **built** | Brain files: save a network to disk and load it back | a saved-then-loaded network gives identical outputs |
-| 6 | planned | Imitation: record a teacher, train, watch the ant copy it | loss falls; the ant delivers food on its own |
-| 7 | planned | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
+| 6 | **built** | Imitation: record a teacher, train, watch the ant copy it | loss falls; the ant delivers food on its own |
+| 7 | **built** | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
 | 8 | later | Reinforcement learning | to be planned |
 
 **XOR** (stage 3) is the classic first test for a network. It is the rule
@@ -472,15 +471,19 @@ forward pass, backpropagation and gradient descent all work.
 src/
   nn/                 library "ant_nn" - depends on nothing            (built)
     matrix.h / .cpp     Matrix: the grid-of-numbers type
-    network.h / .cpp    Network: layers, run(), forward(), save/load
-                        (backward() and update will be added here)
+    network.h / .cpp    Network: layers, run(), forward(), save/load,
+                        addGradients() (backpropagation), descend() (gradient descent)
   agent/              library "ant_agent" - connects a network to an ant (built)
     senses.h / .cpp     observe(): World + ant index -> 22-number observation
     brain.h / .cpp      brainAction(): observation -> Network -> AntAction
   render/network_view   the live picture of the network                 (built)
-  train/              the training programs                           (planned)
-    imitation...        record a teacher and train by backpropagation
-    evolution...        population, fitness, mutation
+  train/              library "ant_training"                           (built)
+    episode.h / .cpp    play one whole game with no window, and score it
+    dataset.h / .cpp    record a teacher; save and load recordings
+    imitation.h / .cpp  train a network to copy a teacher (backpropagation)
+    evolution.h / .cpp  population, fitness, selection, mutation
+    parallel.h          play many games at once on several processor cores
+  app/train_main.cpp    the ant_train command-line tool                  (built)
 ```
 
 And how it plugs into the simulation:
@@ -539,8 +542,8 @@ Things to try:
 - `ant_game --brain random --save-brain my.brain` writes the network to a
   text file you can open; `ant_game --brain my.brain` loads it back.
 
-When training exists, this same panel will show a brain that has learned
-something, and the patterns will mean something.
+With a trained brain (see TRAINING.md) this same panel shows a brain that has learned
+something (`ant_game --brain brains/forager.brain`).
 
 ---
 

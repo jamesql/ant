@@ -4,7 +4,9 @@
 #   ant_core  - game rules and simulation. Pure C++, no graphics, fully testable.
 #   ant_nn    - the neural network: matrices, the forward pass, brain files.
 #   ant_agent - connects a network to an ant (senses in, action out).
-#   ant_tests - unit tests for the three libraries (run with `ctest`).
+#   ant_training - episodes, datasets, imitation learning and neuroevolution.
+#   ant_train - the command-line tool that trains and scores brains.
+#   ant_tests - unit tests for the libraries (run with `ctest`).
 #   ant_game  - the playable first-person game (the libraries + raylib rendering).
 
 cmake_minimum_required(VERSION 3.24)
@@ -52,6 +54,22 @@ add_library(ant_agent STATIC
 target_link_libraries(ant_agent PUBLIC ant_core ant_nn)
 ant_enable_warnings(ant_agent)
 
+# --- Training library (episodes, datasets, imitation, evolution) --------------
+find_package(Threads REQUIRED)
+add_library(ant_training STATIC
+    src/train/dataset.cpp
+    src/train/episode.cpp
+    src/train/evolution.cpp
+    src/train/imitation.cpp
+)
+target_link_libraries(ant_training PUBLIC ant_agent Threads::Threads)
+ant_enable_warnings(ant_training)
+
+# --- Training tool -----------------------------------------------------------
+add_executable(ant_train src/app/train_main.cpp)
+target_link_libraries(ant_train PRIVATE ant_training)
+ant_enable_warnings(ant_train)
+
 # --- Unit tests --------------------------------------------------------------
 if(ANT_BUILD_TESTS)
     enable_testing()
@@ -61,11 +79,12 @@ if(ANT_BUILD_TESTS)
         tests/test_network.cpp
         tests/test_pheromones.cpp
         tests/test_senses.cpp
+        tests/test_training.cpp
         tests/test_vec2.cpp
         tests/test_level.cpp
         tests/test_world.cpp
     )
-    target_link_libraries(ant_tests PRIVATE ant_agent)
+    target_link_libraries(ant_tests PRIVATE ant_training)
     ant_enable_warnings(ant_tests)
     add_test(NAME ant_tests COMMAND ant_tests)
 endif()
@@ -92,6 +111,6 @@ if(ANT_BUILD_GAME)
         src/render/renderer.cpp
         src/render/sprites.cpp
     )
-    target_link_libraries(ant_game PRIVATE ant_agent raylib)
+    target_link_libraries(ant_game PRIVATE ant_training raylib)
     ant_enable_warnings(ant_game)
 endif()
