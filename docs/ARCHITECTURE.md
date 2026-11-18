@@ -39,7 +39,7 @@ time, which is what lets a network practise thousands of games in seconds.
 ## 2. Folder layout
 
 ```
-CMakeLists.txt        build script (3 targets, see section 9)
+CMakeLists.txt        build script (5 targets, see section 9)
 src/
   core/               the simulation - pure C++, no graphics
     vec2.h              2D vector math
@@ -54,14 +54,22 @@ src/
     lighting.h / .cpp   the GPU shaders (sunlight + haze, sprite cut-outs)
     renderer.h / .cpp   the first-person 3D scene
     hud.h / .cpp        the 2D overlay: panels, mini-map, messages
+    network_view.h/.cpp the live picture of a neural network
   app/
     main.cpp            window, keyboard input, the game loop
-tests/                unit tests for core/
+  nn/                 the neural network - pure math, knows nothing about ants
+    matrix.h / .cpp     Matrix: a grid of numbers, and matrix-times-vector
+    network.h / .cpp    Network: layers, the forward pass, brain files
+  agent/              connects a network to an ant
+    senses.h / .cpp     what an ant perceives, as 22 numbers
+    brain.h / .cpp      senses -> network -> AntAction
+tests/                unit tests for core/, nn/ and agent/
 docs/                 this document and the neural network guides
 ```
 
-Dependency rule: `core` depends on nothing. `render` depends on `core` and
-raylib. `app` depends on both. Nothing ever points back toward `app`.
+Dependency rule: `core` and `nn` depend on nothing. `agent` depends on both.
+`render` depends on `core`, `nn` and raylib. `app` depends on all of them.
+Nothing ever points back toward `app`.
 
 ## 3. The simulation (`src/core`)
 
@@ -341,7 +349,7 @@ Nothing in the code describes steps 3 to 5. They emerge.
 
 ## 8. Tests (`tests/`)
 
-Only `core` is tested, because that is where the rules are. The tests use a
+Everything except drawing is tested: the rules, the network and the senses. The tests use a
 tiny home-made framework (`tests/test_framework.h`, three macros: `TEST`,
 `CHECK`, `CHECK_NEAR`), so there is no test library to install.
 
@@ -352,6 +360,8 @@ tiny home-made framework (`tests/test_framework.h`, three macros: `TEST`,
 | `test_pheromones.cpp` | scent deposits, evaporates, diffuses, and does not cross solid cells |
 | `test_world.cpp` | each game rule, one at a time, on tiny hand-made levels |
 | `test_instinct.cpp` | single rules of the instinct, and a whole colony foraging the real level with no player |
+| `test_network.cpp` | matrix math, the forward pass (including the worked example from the guide), random starting weights, and saving and loading brain files |
+| `test_senses.cpp` | each sense reacts to the one thing it should; a network can drive an ant |
 
 Run them with `ctest --test-dir build -C Release --output-on-failure`.
 
@@ -360,12 +370,32 @@ Run them with `ctest --test-dir build -C Release --output-on-failure`.
 | Target | Contents | Depends on |
 | --- | --- | --- |
 | `ant_core` | static library: `src/core` | nothing |
-| `ant_tests` | the unit tests | `ant_core` |
-| `ant_game` | the playable game | `ant_core`, raylib |
+| `ant_nn` | static library: `src/nn` | nothing |
+| `ant_agent` | static library: `src/agent` | `ant_core`, `ant_nn` |
+| `ant_tests` | the unit tests | `ant_agent` |
+| `ant_game` | the playable game | `ant_agent`, raylib |
 
-The neural network will become a fourth library, `ant_nn`, that also depends
-on nothing. See [NEURAL_NETWORK.md](NEURAL_NETWORK.md) and
-[TRAINING.md](TRAINING.md).
+`ant_nn` deliberately knows nothing about ants: it is plain math that could
+drive anything. `ant_agent` is the thin layer that says "these 22 numbers are
+what an ant senses, and these 2 outputs are how it moves".
+
+### 9.1 The neural network in the running game
+
+```
+World --observe()--> 22 numbers --Network::run()--> every neuron's value --> AntAction
+        (agent/senses)            (nn/network)        |                      (agent/brain)
+                                                      v
+                                              drawNetworkView()
+                                             (render/network_view)
+```
+
+- `main.cpp` holds one `Network`. Each simulation step, whoever is currently
+  driving the player's ant (keyboard, instinct or network) supplies its action.
+- The network view asks the network what it would do *right now*, whoever is
+  driving, and draws every neuron and connection. So you can watch its
+  reaction while playing by hand, then press `B` and let it take over.
+- The network cannot learn yet. See [NEURAL_NETWORK.md](NEURAL_NETWORK.md) for
+  the math and [TRAINING.md](TRAINING.md) for how it will be trained.
 
 ## 10. What is not simulated (yet)
 

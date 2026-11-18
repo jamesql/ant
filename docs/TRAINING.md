@@ -8,7 +8,9 @@ math inside it. This document covers everything around it:
 3. how to use it
 4. how to shape it, for example "an ant that only goes after berries"
 
-Nothing here is built yet. Commands and file formats below are the plan, and
+Training itself is not built yet. What already exists is the network, the
+brain file format and `ant_game --brain` (see NEURAL_NETWORK.md, 4.2 and 4.4).
+The `ant_train` commands and the other options below are the plan, and
 details may change as we build. Terms are defined where they first appear and
 collected in a glossary at the end.
 
@@ -265,7 +267,7 @@ the long, boring phase where every brain walks in circles.
 ### 3.1 The brain file
 
 The final output of training is one small file containing everything needed
-to rebuild the network: its shape and its numbers. The planned format is
+to rebuild the network: its shape and its numbers. The format is
 plain text, so you can open it and look:
 
 ```
@@ -322,21 +324,23 @@ Every so often training saves the current best brain as a **checkpoint**
 
 ## Part 4 - Using a brain
 
-Planned commands (names may change):
+`ant_game --brain` works today (with an untrained or hand-saved brain). The
+rest are planned commands, and names may change:
 
 ```
 ant_train imitate --teacher instinct --seeds 1-50 --out brains/copycat.brain
 ant_train evolve  --start brains/copycat.brain --generations 200 --out brains/forager.brain
 ant_train score   --brain brains/forager.brain --seeds 1000-1019
 
-ant_game --brain brains/forager.brain            your ant is driven by the brain
-ant_game --colony-brain brains/forager.brain     every other ant is driven by it
+ant_game --brain brains/forager.brain            your ant is driven by the brain   (works today)
+ant_game --colony-brain brains/forager.brain     every other ant is driven by it   (planned)
 ```
 
 - **`score`** plays unseen seeds with no window and prints the numbers that
   matter: food delivered, deaths, time taken. This is how two brains are
   compared fairly.
-- **`--brain`** lets you sit behind the brain's eyes and watch it decide. It
+- **`--brain`** lets you sit behind the brain's eyes and watch it decide, with
+  the live network view open. It
   uses the same slot `--autopilot` uses today for the instinct.
 - **`--colony-brain`** replaces the instinct in the other nine ants while you
   play normally.
@@ -344,7 +348,7 @@ ant_game --colony-brain brains/forager.brain     every other ant is driven by it
 In code, a brain is a drop-in replacement for `instinctAction`:
 
 ```cpp
-AntAction action = brain.decide(senses(world, antIndex));   // instead of instinctAction(world, antIndex)
+AntAction action = brainAction(brain, world, antIndex);   // instead of instinctAction(world, antIndex)
 ```
 
 Because every ant takes its own action, different ants can use different

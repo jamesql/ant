@@ -94,7 +94,7 @@ void Hud::draw(const World& world, const Texture2D* scentTexture) {
     drawMiniMap(world, scentTexture);
     drawMessage();
 
-    const char* controls = "W/S walk    A/D turn    P scent trails    R restart    Esc quit";
+    const char* controls = "W/S walk   A/D turn   P scent   N network   B brain   R restart";
     const float controlsWidth = static_cast<float>(MeasureText(controls, 20)) + 28.0f;
     drawPanel({kMargin, height - kMargin - 36.0f, controlsWidth, 36.0f});
     drawText(controls, kMargin + 14.0f, height - kMargin - 28.0f, 20, kTextDim);

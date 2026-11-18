@@ -1,8 +1,12 @@
 # Neural Network Guide
 
 This document explains what a neural network is, every piece of math it needs,
-and the plan for building one in C++ that learns to drive an ant in Ant Picnic. Nothing
-here is built yet; this is the map we will follow.
+and how the one in this project, which drives an ant in Ant Picnic, is built.
+
+What exists today: the network itself (Parts 1 and 2) runs in the game and
+can be watched live. What does not exist yet: learning (Part 3). Until then
+the network's numbers are random, so it behaves randomly. Section 4.2 lists
+exactly what is built.
 
 Read it top to bottom. Every term is defined the first time it appears, and
 there is a glossary at the end.
@@ -436,16 +440,16 @@ a particular behaviour is the subject of [TRAINING.md](TRAINING.md).
 
 Each stage is small, tested, and ends with something you can see working.
 
-| Stage | What we build | How we know it works |
-| --- | --- | --- |
-| 1 | `Matrix` class: multiply, add, transpose | unit tests against hand-computed values |
-| 2 | `Network`: layers, forward pass | reproduces the worked example in 3.5 |
-| 3 | Backpropagation and gradient descent | gradient checking (3.8); learns XOR |
-| 4 | Senses: build the 22-number observation from a `World` | unit tests on hand-made levels |
-| 5 | Brain files: save a network to disk and load it back | a saved-then-loaded network gives identical outputs |
-| 6 | Imitation: record a teacher, train, watch the ant copy it | loss falls; the ant delivers food on its own |
-| 7 | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
-| 8 | (later) Reinforcement learning | to be planned |
+| Stage | Status | What we build | How we know it works |
+| --- | --- | --- | --- |
+| 1 | **built** | `Matrix`: a grid of numbers, and matrix times vector | unit tests against hand-computed values |
+| 2 | **built** | `Network`: layers, forward pass | reproduces the worked example in 3.5 |
+| 3 | next | Backpropagation and gradient descent (adds transpose to `Matrix`) | gradient checking (3.8); learns XOR |
+| 4 | **built** | Senses: build the 22-number observation from a `World` | unit tests on hand-made levels |
+| 5 | **built** | Brain files: save a network to disk and load it back | a saved-then-loaded network gives identical outputs |
+| 6 | planned | Imitation: record a teacher, train, watch the ant copy it | loss falls; the ant delivers food on its own |
+| 7 | planned | Neuroevolution: population, fitness, mutation | best fitness rises generation after generation |
+| 8 | later | Reinforcement learning | to be planned |
 
 **XOR** (stage 3) is the classic first test for a network. It is the rule
 "output 1 if exactly one of two inputs is 1":
@@ -462,23 +466,24 @@ No single neuron can learn it, because no single straight line separates the
 1s from the 0s. A network with a hidden layer can. If ours learns XOR, the
 forward pass, backpropagation and gradient descent all work.
 
-### 4.3 Where the code will live
+### 4.3 Where the code lives
 
 ```
 src/
-  nn/                 new library "ant_nn" - depends on nothing
-    matrix.h / .cpp     Matrix: the grid-of-numbers type and its operations
-    activation.h        tanh and its slope
-    network.h / .cpp    Network: layers, forward(), backward(), update, save/load
-  agent/              connects the network to the game
-    senses.h / .cpp     World + ant index -> 22-number observation
-    brain.h / .cpp      observation -> Network -> AntAction
-  train/              the training programs
+  nn/                 library "ant_nn" - depends on nothing            (built)
+    matrix.h / .cpp     Matrix: the grid-of-numbers type
+    network.h / .cpp    Network: layers, run(), forward(), save/load
+                        (backward() and update will be added here)
+  agent/              library "ant_agent" - connects a network to an ant (built)
+    senses.h / .cpp     observe(): World + ant index -> 22-number observation
+    brain.h / .cpp      brainAction(): observation -> Network -> AntAction
+  render/network_view   the live picture of the network                 (built)
+  train/              the training programs                           (planned)
     imitation...        record a teacher and train by backpropagation
     evolution...        population, fitness, mutation
 ```
 
-And how it plugs into the simulation that already exists:
+And how it plugs into the simulation:
 
 ```
             +--------+  observation   +---------+  AntAction   +-------+
@@ -487,9 +492,55 @@ World ----> | senses | -------------> | Network | -----------> | World |
                                                                +-------+
 ```
 
-`World::step` already accepts one `AntAction` per ant, so the simulation
-itself does not change at all. A brain is a drop-in replacement for
+`World::step` accepts one `AntAction` per ant, so the simulation
+itself did not have to change at all. `brainAction` is a drop-in replacement for
 `instinctAction`. See [ARCHITECTURE.md](ARCHITECTURE.md).
+
+
+### 4.4 Watching the network
+
+Run the game with a random network driving your ant:
+
+```
+ant_game --brain random
+```
+
+A panel shows the network live (key `N` shows or hides it):
+
+```
+ inputs (22)              hidden (16)            outputs (2)
+ what the ant senses                             what it decides
+
+ feel ahead     O ---\
+ food scent     O ----\---> O ---\
+ nest: ahead    O -----\--> O ----+--> O  walk  +0.27
+ carrying       O ------/-> O ---/+--> O  turn  +0.01
+ ...                        ...
+```
+
+- Each **circle** is a neuron. Its colour is its value right now: orange is
+  positive, blue is negative, dark is near zero. This is the `a` of Part 2.
+- Each **line** is a connection, drawn only when it is carrying something.
+  Its colour and brightness show `weight * value of the neuron it leaves`,
+  which is one term of the weighted sum in section 2.1. Orange pushes the
+  next neuron up, blue pushes it down.
+- The left column is labelled with the senses of section 1.3; the right
+  column shows the two outputs as numbers.
+
+Things to try:
+
+- Walk toward a plate and watch the "feel" inputs light up one by one.
+- Stand on a scent trail and turn on the spot; the three scent inputs take
+  turns being brightest.
+- Press `B` to hand control to the network, and again to take it back. While
+  you drive, the panel shows what the network *would* do.
+- Press `G` for a different set of random numbers. The wiring changes
+  colour, and the ant behaves differently: the numbers are the behaviour.
+- `ant_game --brain random --save-brain my.brain` writes the network to a
+  text file you can open; `ant_game --brain my.brain` loads it back.
+
+When training exists, this same panel will show a brain that has learned
+something, and the patterns will mean something.
 
 ---
 

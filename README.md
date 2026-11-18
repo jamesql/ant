@@ -10,8 +10,9 @@ follows a few simple rules and communicates only by leaving scent trails
 (pheromones) on the ground. You can see those trails, add to them, and lead
 the colony to food.
 
-The game is also the training ground for a neural network we will write from
-scratch, which will learn to drive an ant.
+The project also contains a neural network written from scratch, which can
+already drive an ant and be watched live. Teaching it to drive *well* is the
+next step.
 
 ## Build and run
 
@@ -41,6 +42,22 @@ instinct too):
 build/Release/ant_game.exe --autopilot
 ```
 
+To watch a neural network drive your ant, with a live view of it "thinking".
+The network is untrained for now (its numbers are random), so expect it to
+stagger about; press `G` for a different random one:
+
+```bash
+build/Release/ant_game.exe --brain random
+```
+
+| Option | Effect |
+| --- | --- |
+| `--autopilot` | Your ant follows the built-in instinct. |
+| `--brain <file>` | A network loaded from a brain file drives your ant. |
+| `--brain random` | A random, untrained network drives your ant. |
+| `--save-brain <file>` | Write the current network to a brain file. |
+| `--show-network` | Start with the network view open. |
+
 ## Controls
 
 | Key | Action |
@@ -50,6 +67,9 @@ build/Release/ant_game.exe --autopilot
 | `A` / `Left` | Turn left |
 | `D` / `Right` | Turn right |
 | `P` | Show or hide the scent trails |
+| `N` | Show or hide the live neural network view |
+| `B` | Let the neural network drive your ant, or take control back |
+| `G` | Swap in a new random network |
 | `R` | Restart with a new food layout |
 | `Esc` | Quit |
 
