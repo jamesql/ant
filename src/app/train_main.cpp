@@ -99,8 +99,10 @@ bool storeBrain(ant::Network brain, const std::string& path) {
 }
 
 /// Plays every layout in `seeds` (several at once) and prints the totals.
-/// `brain` may be null to score the built-in instinct.
-void printScore(const char* label, const ant::Network* brain, SeedRange seeds, float seconds) {
+/// `brain` may be null to score the built-in instinct. If `perGamePath` is not
+/// empty, one line per game is also written there (for charts and analysis).
+void printScore(const char* label, const ant::Network* brain, SeedRange seeds, float seconds,
+                const std::string& perGamePath = "") {
     std::vector<ant::EpisodeResult> results(static_cast<std::size_t>(seeds.count()));
     ant::parallelFor(results.size(), 0, [&](std::size_t i) {
         results[i] = ant::runEpisode(seeds.first + static_cast<std::uint32_t>(i), seconds, brain);
@@ -122,6 +124,15 @@ void printScore(const char* label, const ant::Network* brain, SeedRange seeds, f
     std::printf("%-12s food delivered %5.1f of %.0f per game | games won %d of %d | deaths %.1f per game | fitness %.0f\n",
                 label, static_cast<float>(delivered) / games, static_cast<float>(total) / games, wins,
                 seeds.count(), static_cast<float>(deaths) / games, fitness / games);
+
+    if (!perGamePath.empty()) {
+        std::ofstream file(perGamePath);
+        file << "seed delivered food_total won deaths seconds_left\n";
+        for (std::size_t i = 0; i < results.size(); ++i) {
+            file << seeds.first + i << ' ' << results[i].delivered << ' ' << results[i].foodTotal << ' '
+                 << (results[i].won ? 1 : 0) << ' ' << results[i].deaths << ' ' << results[i].secondsLeft << '\n';
+        }
+    }
 }
 
 /// `xor`: trains a tiny network on "output 1 if exactly one input is 1".
@@ -263,18 +274,19 @@ int runScore(const Arguments& arguments) {
     const std::string source = arguments.text("--brain", "instinct");
     const SeedRange seeds = parseSeeds(arguments.text("--seeds", "1000-1009"));
     const float seconds = arguments.number("--seconds", 240.0f);
+    const std::string perGamePath = arguments.text("--per-game", "");
 
     std::printf("Playing maps %u to %u, %.0f s of game time each, every ant driven by the same brain.\n", seeds.first,
                 seeds.last, seconds);
     if (source == "instinct") {
-        printScore("instinct", nullptr, seeds, seconds);
+        printScore("instinct", nullptr, seeds, seconds, perGamePath);
         return 0;
     }
     const std::optional<ant::Network> brain = openBrain(source, static_cast<std::uint32_t>(arguments.integer("--brain-seed", 1)));
     if (!brain) {
         return 1;
     }
-    printScore(brain->name.c_str(), &*brain, seeds, seconds);
+    printScore(brain->name.c_str(), &*brain, seeds, seconds, perGamePath);
     return 0;
 }
 
