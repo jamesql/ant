@@ -25,6 +25,8 @@ constexpr float kFieldOfView = 70.0f;  ///< Vertical field of view, in degrees.
 constexpr float kNearClip = 0.05f;     ///< Nearest distance the camera can see.
 constexpr float kFarClip = 3000.0f;    ///< Farthest distance the camera can see.
 constexpr float kHeadBob = 0.012f;     ///< How far the view bounces while walking.
+constexpr float kOverheadHeight = 46.0f;       ///< Camera height in the overhead view: the whole map fits.
+constexpr float kOverheadFieldOfView = 45.0f;  ///< Vertical field of view in the overhead view, in degrees.
 constexpr float kStepsPerUnit = 9.0f;  ///< Walking-animation speed: radians of leg swing per unit walked.
 
 constexpr float kGrassSize = 1200.0f;       ///< The lawn reaches far past where haze hides it.
@@ -152,6 +154,14 @@ void Renderer::draw(const World& world) {
     camera_.up = {0.0f, 1.0f, 0.0f};
     camera_.fovy = kFieldOfView;
     camera_.projection = CAMERA_PERSPECTIVE;
+    if (overhead_) {
+        // High above the middle of the map, looking straight down, with +x to
+        // the right of the screen and +y toward the bottom (like the mini-map).
+        camera_.position = {0.0f, kOverheadHeight, 0.0f};
+        camera_.target = {0.0f, 0.0f, 0.0f};
+        camera_.up = {0.0f, 0.0f, -1.0f};
+        camera_.fovy = kOverheadFieldOfView;
+    }
 
     updateScentTexture(world);
     ClearBackground(kHorizon);  // also resets the depth buffer left over from the last frame
@@ -169,7 +179,7 @@ void Renderer::draw(const World& world) {
         drawObstacle(level.obstacles[i], i);
     }
     drawBasket(level);
-    for (std::size_t i = 1; i < world.ants().size(); ++i) {  // ant 0 is the camera
+    for (std::size_t i = firstDrawnAnt(); i < world.ants().size(); ++i) {
         if (world.ants()[i].alive) {
             drawAnt(world.ants()[i]);
         }
@@ -177,14 +187,22 @@ void Renderer::draw(const World& world) {
 
     BeginShaderMode(cutout_);
     for (const Billboard& billboard : collectBillboards(world)) {
-        DrawBillboard(camera_, *billboard.texture, billboard.center, billboard.height, WHITE);
+        // A sprite stands "up" along the camera's own up direction, so it faces the
+        // camera squarely in both views (upright in first person, flat from above).
+        const Texture2D& texture = *billboard.texture;
+        const Rectangle whole{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+        const Vector2 size{billboard.height * whole.width / whole.height, billboard.height};
+        DrawBillboardPro(camera_, texture, whole, billboard.center, camera_.up, size,
+                         {size.x / 2.0f, size.y / 2.0f}, 0.0f, WHITE);
     }
     EndShaderMode();
 
     drawGlassShells(level);
     EndMode3D();
 
-    hud_.draw(world, showScent_ ? &scentTexture_ : nullptr);
+    if (!overhead_) {
+        hud_.draw(world, showScent_ ? &scentTexture_ : nullptr);
+    }
 }
 
 void Renderer::updateScentTexture(const World& world) {
@@ -298,9 +316,9 @@ void Renderer::drawGroundDecals(const World& world) {
             drawShadow(food.position, kFoodSize * 0.35f, kFoodSize * 0.3f);
         }
     }
-    for (std::size_t i = 1; i < world.ants().size(); ++i) {
+    for (std::size_t i = firstDrawnAnt(); i < world.ants().size(); ++i) {
         if (world.ants()[i].alive) {
-            drawShadow(world.ants()[i].position, 0.3f, 0.2f);
+            drawShadow(world.ants()[i].position, 0.3f * drawScale(), 0.2f * drawScale());
         }
     }
 
@@ -403,17 +421,19 @@ void Renderer::drawAnt(const Ant& ant) {
     const Vector3 forward{ahead.x, 0.0f, ahead.y};
     const Vector3 up{0.0f, 1.0f, 0.0f};
     const Vector3 right{-ahead.y, 0.0f, ahead.x};
+    const float k = drawScale();  // ants are drawn larger in the overhead view, so they can be seen
 
     // A point given in the ant's own terms: so far forward, up, and to the right.
     const auto at = [&](float f, float u, float r) {
-        Vector3 point = lift(ant.position, u);
-        point = Vector3Add(point, Vector3Scale(forward, f));
-        return Vector3Add(point, Vector3Scale(right, r));
+        Vector3 point = lift(ant.position, u * k);
+        point = Vector3Add(point, Vector3Scale(forward, f * k));
+        return Vector3Add(point, Vector3Scale(right, r * k));
     };
     // A body segment: a ball stretched to the given length, height and width.
     const auto segment = [&](Vector3 center, float length, float height, float width) {
         drawLit(sphere_, nullptr, kAntBody,
-                basis(center, Vector3Scale(forward, length), Vector3Scale(up, height), Vector3Scale(right, width)));
+                basis(center, Vector3Scale(forward, length * k), Vector3Scale(up, height * k),
+                      Vector3Scale(right, width * k)));
     };
 
     segment(at(-0.27f, 0.20f, 0.0f), 0.20f, 0.14f, 0.15f);  // abdomen
@@ -432,16 +452,16 @@ void Renderer::drawAnt(const Ant& ant) {
             const Vector3 hip = at(offset * 0.8f, 0.17f, s * 0.07f);
             const Vector3 knee = at(offset * 1.4f + swing * 0.5f, 0.30f, s * 0.24f);
             const Vector3 foot = at(offset * 2.2f + swing, 0.0f, s * 0.36f);
-            drawLit(cylinder_, nullptr, kAntLimb, rod(hip, knee, 0.014f));
-            drawLit(cylinder_, nullptr, kAntLimb, rod(knee, foot, 0.012f));
+            drawLit(cylinder_, nullptr, kAntLimb, rod(hip, knee, 0.014f * k));
+            drawLit(cylinder_, nullptr, kAntLimb, rod(knee, foot, 0.012f * k));
         }
         // One antenna: up and out from the head, then bending forward.
         const float twitch = 0.02f * std::sin(stride * 0.7f + s);
         const Vector3 root = at(0.28f, 0.25f, s * 0.04f);
         const Vector3 elbow = at(0.40f, 0.35f + twitch, s * 0.12f);
         const Vector3 tip = at(0.54f, 0.29f + twitch, s * 0.17f);
-        drawLit(cylinder_, nullptr, kAntLimb, rod(root, elbow, 0.011f));
-        drawLit(cylinder_, nullptr, kAntLimb, rod(elbow, tip, 0.009f));
+        drawLit(cylinder_, nullptr, kAntLimb, rod(root, elbow, 0.011f * k));
+        drawLit(cylinder_, nullptr, kAntLimb, rod(elbow, tip, 0.009f * k));
     }
 }
 
@@ -469,16 +489,18 @@ std::vector<Renderer::Billboard> Renderer::collectBillboards(const World& world)
     for (const Food& food : world.foods()) {
         if (food.state == FoodState::OnGround) {
             const float bob = 0.05f * std::sin(time * 2.2f + food.position.x * 1.7f);
+            const float size = kFoodSize * drawScale();
             billboards.push_back(
-                {&foodSprite(sprites_, food.kind), lift(food.position, kFoodSize / 2.0f + 0.06f + bob), kFoodSize});
+                {&foodSprite(sprites_, food.kind), lift(food.position, size / 2.0f + 0.06f + bob), size});
         }
     }
     // Food carried by the other ants is held in front of their heads.
-    for (std::size_t i = 1; i < world.ants().size(); ++i) {
+    for (std::size_t i = firstDrawnAnt(); i < world.ants().size(); ++i) {
         const Ant& ant = world.ants()[i];
         if (ant.alive && ant.carriedFood) {
             billboards.push_back({&foodSprite(sprites_, world.foods()[*ant.carriedFood].kind),
-                                  lift(ant.position + fromAngle(ant.heading) * 0.4f, 0.3f), 0.42f});
+                                  lift(ant.position + fromAngle(ant.heading) * (0.4f * drawScale()), 0.3f * drawScale()),
+                                  0.42f * drawScale()});
         }
     }
     return billboards;

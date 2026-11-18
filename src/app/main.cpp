@@ -18,6 +18,7 @@
 ///                           pressed) to a file that `ant_train imitate --data` can
 ///                           learn from.
 ///   --show-network          Start with the network view open (key N).
+///   --overhead              Start in the view from above the whole map (key O).
 ///   --seed <number>         Start on that map. Without it, each launch picks a
 ///                           different random map.
 ///   --screenshot <file.png> [seconds]
@@ -62,6 +63,7 @@ constexpr int kScreenshotFrame = 10;
 struct Options {
     bool autopilot = false;
     bool showNetwork = false;
+    bool overhead = false;
     std::optional<std::uint32_t> seed;  ///< The first map; empty = pick one at random.
     const char* brainPath = nullptr;  ///< A file name, or "random".
     const char* colonyBrainPath = nullptr;
@@ -83,6 +85,8 @@ Options parseOptions(int argc, char** argv) {
             options.autopilot = true;
         } else if (std::strcmp(argv[i], "--seed") == 0 && hasValue) {
             options.seed = static_cast<std::uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::strcmp(argv[i], "--overhead") == 0) {
+            options.overhead = true;
         } else if (std::strcmp(argv[i], "--show-network") == 0) {
             options.showNetwork = true;
         } else if (std::strcmp(argv[i], "--brain") == 0 && hasValue) {
@@ -223,9 +227,12 @@ int main(int argc, char** argv) {
         std::printf("Map seed: %u (replay it with --seed %u)\n", seed, seed);
         ant::World world(ant::makePicnicLevel(seed));
         ant::Renderer renderer(world);
+        if (options.overhead) {
+            renderer.toggleOverheadView();
+        }
 
         bool networkDrives = options.brainPath != nullptr;
-        bool showNetwork = options.showNetwork || networkDrives;
+        bool showNetwork = options.showNetwork || (networkDrives && !options.overhead);
         // The network takes priority, then the instinct, then the keyboard.
         const auto currentDriver = [&] {
             return networkDrives ? Driver::Network : (options.autopilot ? Driver::Instinct : Driver::Keyboard);
@@ -248,6 +255,9 @@ int main(int argc, char** argv) {
         while (running && !WindowShouldClose()) {
             if (IsKeyPressed(KEY_R)) {
                 world = ant::World(ant::makePicnicLevel(++seed));  // a whole new map each restart
+            }
+            if (IsKeyPressed(KEY_O)) {
+                renderer.toggleOverheadView();
             }
             if (IsKeyPressed(KEY_P)) {
                 renderer.toggleScentView();

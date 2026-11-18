@@ -34,6 +34,11 @@ public:
     /// Shows or hides the scent trails (in the world and on the mini-map).
     void toggleScentView() { showScent_ = !showScent_; }
 
+    /// Switches between the first-person view and a view from high above the
+    /// whole map (handy for watching what a colony does). The overhead view
+    /// has no HUD, and draws ants and food larger so they can be seen.
+    void toggleOverheadView() { overhead_ = !overhead_; }
+
 private:
     /// A sprite to draw standing upright and facing the camera.
     struct Billboard {
@@ -84,6 +89,12 @@ private:
     Texture2D scentTexture_; ///< One pixel per pheromone grid cell, repainted every frame.
     std::vector<Color> scentPixels_;
     bool showScent_ = true;
+    bool overhead_ = false;
+
+    /// How much larger than life ants and food are drawn (1 in first person).
+    float drawScale() const { return overhead_ ? 2.5f : 1.0f; }
+    /// The first ant to draw: in first person ant 0 is the camera, so it is skipped.
+    std::size_t firstDrawnAnt() const { return overhead_ ? 0 : 1; }
     Camera3D camera_{};
     Hud hud_;
 };
