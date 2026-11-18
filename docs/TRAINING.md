@@ -484,7 +484,8 @@ What you can do today: change the five fitness numbers in
 (lever 2), and start any run from an existing brain with `--start` (lever 3).
 The rest of this part describes extensions that are **not built yet**: senses
 that tell food kinds apart, fitness rules that depend on the kind of food,
-command inputs, and switching a sense off.
+and command inputs. Looking inside a brain and adding a neuron by hand (5.5) are
+built.
 
 ### 5.1 Lever 1 - Senses: an ant cannot act on what it cannot perceive
 
@@ -564,18 +565,84 @@ command, and afterwards you can change what an ant goes after while the game
 is running, simply by changing those three inputs. It is harder to train than
 a specialist but far more flexible.
 
-### 5.5 Understanding a brain by switching off a sense
+### 5.5 Looking inside a brain: `inspect`, `silence` and `graft`
 
-One edit that *is* safe and useful: force one input to zero and watch what
-changes.
+A brain's numbers do not explain themselves, but three experiments do.
 
 ```
-ant_game --brain brains/forager.brain --mute home-scent
+ant_train inspect --brain brains/forager.brain
+ant_train silence --brain brains/forager.brain --neuron 8
+ant_train graft   --brain brains/forager.brain --inputs 7=4,5=-4 --turn 4
 ```
 
-If the ant now gets lost on the way home, it was using home scent to
-navigate. If nothing changes, it had learned to ignore that sense. This is
-the simplest way to find out what a trained brain actually relies on.
+**Ablation: "what breaks if I remove this?"** `inspect` silences each hidden
+neuron and each sense in turn, lets the colony play 40 maps, and prints what
+it lost. A silenced neuron is replaced by its usual (average) value, so only
+the *information* it carried is removed. This is the strongest evidence of
+what a part is for, because it tests cause.
+
+What it found in `forager` (food per game lost when silenced; the whole
+brain delivers about 12):
+
+| Part | Loss | What it appears to do |
+| --- | --- | --- |
+| neuron h10 | -11.3 | **Homing.** Listens to "carrying" and "nest: side" and pushes the turn output. Without it ants still pick food up but stop bringing it home. |
+| neuron h1 | -10.4 | General steering from the nest direction and the left feeler. |
+| neurons h2, h11, h15 | -8.2, -8.3, -2.5 | **Trail following.** All listen to food scent left and ahead. |
+| neuron h5 | -1.6 | **Obstacle avoidance on the right**: listens to "feel right" (+6.0), turns left. |
+| neurons h4, h8 | about 0 | Nothing measurable. The brain works as well with 14 neurons. |
+| sense "feel far left" | -10.1 | The single most relied-on sense. |
+| sense "carrying" | -9.2 | Without it the ant cannot switch between searching and homing. |
+| senses "health", "nest: ahead", "food seen: near" | about 0 | Ignored. |
+
+Two things stand out. No single neuron handles poison: with any one poison
+sense or any one neuron removed, deaths stay at zero, so that skill is spread
+across several parts. And the brain is lopsided: it leans on its left-hand
+senses far more than its right-hand ones ("feel far left" -10.1 against
+"feel far right" -2.1), a quirk evolution happened to settle on.
+
+**The Jacobian: "what pushes what?"** For each sense and each action, how
+much a small increase in the sense changes the action, averaged over the
+moments the ants actually lived through. For our network it is
+`J = diag(1 - o^2) * W2 * diag(1 - h^2) * W1`, which is the chain rule of
+NEURAL_NETWORK.md applied from an output back to the inputs. The largest
+entries of `forager`'s Jacobian for the turn output (positive = turn right):
+
+| Sense | While searching | While carrying |
+| --- | --- | --- |
+| food scent left / right | -6.85 / +6.78 | -1.62 / +0.70 |
+| poison left / right | +2.86 / -2.09 | +3.52 / -2.27 |
+| food seen: side | +2.77 | +0.70 |
+| feel far left / feel right | +1.84 / -1.12 | +0.92 / -1.06 |
+| nest: side | +0.38 | +1.31 |
+
+Read as rules: turn toward the stronger food scent; turn away from poison;
+turn toward food in sight; turn away from whatever a feeler touches; and,
+only when carrying, turn toward the nest and mostly ignore food scent. Nobody
+wrote these rules. They are the ones the hand-written instinct uses, found
+again by training. The walk output's Jacobian is almost zero everywhere: the
+brain simply walks at full speed all the time and does all its work by turning.
+
+**Grafting: "can I add a behaviour?"** `graft` attaches one new hidden neuron
+with weights you choose (senses are numbered from 0 in the order of
+NEURAL_NETWORK.md section 1.3) and measures the result on 200 maps.
+
+| Hand-made neuron | Food per game | Wins | Deaths per game |
+| --- | --- | --- | --- |
+| none (the `forager` as trained) | 12.07 | 63% | 0.00 |
+| "veer right": always on, pushes turn | 10.45 | 40% | 0.00 |
+| "poison lover": turns toward poison | 11.01 | 44% | 0.15 |
+| "eager": turns harder toward food in sight | 11.60 | 56% | 0.00 |
+| "follow home scent when carrying" (two neurons) | 12.2 | 62% | 0.00 |
+| "steer harder for the nest when carrying" (two neurons) | 7.4 | 13% | 0.00 |
+
+So yes, a property can be wired in by hand, and it shows up in behaviour: the
+poison lover is the only brain here whose ants die. But none of the grafts
+made the colony better, and one that looked sensible ("steer harder for
+home") nearly halved its food. The trained weights are balanced against each
+other, and a strong new push upsets that balance. A graft is best used as a
+starting point: add the neuron, then let evolution (`--start`) adjust
+everything around it.
 
 ### 5.6 Other things you can do with finished brains
 

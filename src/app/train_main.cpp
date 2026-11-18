@@ -6,12 +6,17 @@
 ///   xor      Proves the learning math works on the classic XOR problem.
 ///   imitate  Trains a brain to copy a teacher (the instinct, or a recording of you).
 ///   evolve   Improves a brain by selection and mutation.
-///   score    Plays unseen food layouts with no window and reports how a brain did.
+///   score    Plays unseen maps with no window and reports how a brain did.
+///   inspect  Finds out what each neuron and sense of a brain is for.
+///   graft    Adds a hand-made neuron to a brain and measures the effect.
+///   silence  Removes one neuron from a brain and measures the effect.
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -19,10 +24,12 @@
 #include <vector>
 
 #include "agent/brain.h"
+#include "agent/senses.h"
 #include "train/dataset.h"
 #include "train/episode.h"
 #include "train/evolution.h"
 #include "train/imitation.h"
+#include "train/inspect.h"
 #include "train/parallel.h"
 
 namespace {
@@ -290,6 +297,173 @@ int runScore(const Arguments& arguments) {
     return 0;
 }
 
+/// `inspect`: finds out what each neuron and each sense of a brain is for.
+int runInspect(const Arguments& arguments) {
+    const std::optional<ant::Network> loaded = openBrain(arguments.text("--brain", "brains/forager.brain"), 1);
+    if (!loaded) {
+        return 1;
+    }
+    const ant::Network& brain = *loaded;
+    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40039"));
+    const int hiddenCount = brain.layers()[0].weights.rows();
+
+    std::printf("Inspecting '%s' on maps %u to %u.\n\n", brain.name.c_str(), seeds.first, seeds.last);
+    const std::vector<std::vector<float>> observations = ant::sampleObservations(brain, seeds.first, 6);
+    const ant::Activations usual = ant::averageActivations(brain, observations);
+    const ant::AverageResult baseline = ant::averageResult(brain, seeds.first, seeds.count());
+    std::printf("Whole brain: %.1f food per game, wins %.0f%%, %.1f pickups, %.2f deaths. (%zu sampled moments)\n\n",
+                baseline.delivered, 100.0f * baseline.winRate, baseline.pickups, baseline.deaths, observations.size());
+
+    // How much each sense varies in practice; a big weight on a sense that never changes means little.
+    std::vector<float> spread(static_cast<std::size_t>(ant::kSenseCount), 0.0f);
+    for (const std::vector<float>& observation : observations) {
+        for (std::size_t i = 0; i < spread.size(); ++i) {
+            const float offset = observation[i] - usual[0][i];
+            spread[i] += offset * offset;
+        }
+    }
+    for (float& value : spread) {
+        value = std::sqrt(value / static_cast<float>(observations.size()));
+    }
+
+    // Prints what the colony loses when one part is silenced.
+    const auto printLoss = [&](const ant::Network& damaged) {
+        const ant::AverageResult result = ant::averageResult(damaged, seeds.first, seeds.count());
+        std::printf(" %+6.1f food %+5.0f%% wins %+6.1f pickups %+6.2f deaths", result.delivered - baseline.delivered,
+                    100.0f * (result.winRate - baseline.winRate), result.pickups - baseline.pickups,
+                    result.deaths - baseline.deaths);
+    };
+
+    std::printf("HIDDEN NEURONS - what the colony loses with each one silenced, and what it listens to\n");
+    for (int neuron = 0; neuron < hiddenCount; ++neuron) {
+        std::printf("h%-2d", neuron + 1);
+        printLoss(ant::silenced(brain, 1, neuron, usual[1][static_cast<std::size_t>(neuron)]));
+        std::printf(" | to walk %+5.2f, to turn %+5.2f | listens to:", brain.layers()[1].weights.at(0, neuron),
+                    brain.layers()[1].weights.at(1, neuron));
+
+        // The three senses with the most influence on this neuron: weight times how much the sense varies.
+        std::vector<int> order(static_cast<std::size_t>(ant::kSenseCount));
+        for (std::size_t i = 0; i < order.size(); ++i) {
+            order[i] = static_cast<int>(i);
+        }
+        const auto influence = [&](int sense) {
+            return std::fabs(brain.layers()[0].weights.at(neuron, sense)) * spread[static_cast<std::size_t>(sense)];
+        };
+        std::sort(order.begin(), order.end(), [&](int a, int b) { return influence(a) > influence(b); });
+        for (int rank = 0; rank < 3; ++rank) {
+            std::printf(" %s (%+.1f)", ant::senseName(order[static_cast<std::size_t>(rank)]),
+                        brain.layers()[0].weights.at(neuron, order[static_cast<std::size_t>(rank)]));
+        }
+        std::printf("\n");
+    }
+
+    std::printf("\nSENSES - what the colony loses with each one switched off\n");
+    for (int sense = 0; sense < ant::kSenseCount; ++sense) {
+        std::printf("%-17s", ant::senseName(sense));
+        printLoss(ant::silenced(brain, 0, sense, usual[0][static_cast<std::size_t>(sense)]));
+        std::printf("\n");
+    }
+
+    // The Jacobian, separately for ants that are searching and ants that are carrying food.
+    const int carryingSense = 20;
+    for (const bool carrying : {false, true}) {
+        std::vector<std::vector<float>> subset;
+        for (const std::vector<float>& observation : observations) {
+            if ((observation[carryingSense] > 0.5f) == carrying) {
+                subset.push_back(observation);
+            }
+        }
+        const std::vector<std::vector<float>> jacobian = ant::averageJacobian(brain, subset);
+        std::printf("\nJACOBIAN while %s (%zu moments): how much each action changes per unit of each sense\n",
+                    carrying ? "CARRYING food" : "SEARCHING", subset.size());
+        std::printf("%-17s %8s %8s\n", "sense", "walk", "turn");
+        for (int sense = 0; sense < ant::kSenseCount; ++sense) {
+            std::printf("%-17s %+8.2f %+8.2f\n", ant::senseName(sense), jacobian[0][static_cast<std::size_t>(sense)],
+                        jacobian[1][static_cast<std::size_t>(sense)]);
+        }
+    }
+    return 0;
+}
+
+/// `graft`: adds one hand-made hidden neuron to a brain and reports the effect.
+int runGraft(const Arguments& arguments) {
+    const std::optional<ant::Network> loaded = openBrain(arguments.text("--brain", "brains/forager.brain"), 1);
+    if (!loaded) {
+        return 1;
+    }
+    // The new neuron's input weights, written as "sense=weight,sense=weight" with senses numbered from 0.
+    std::vector<float> inputWeights(static_cast<std::size_t>(ant::kSenseCount), 0.0f);
+    std::string list = arguments.text("--inputs", "");
+    while (!list.empty()) {
+        const std::size_t comma = list.find(',');
+        const std::string item = list.substr(0, comma);
+        const std::size_t equals = item.find('=');
+        const int sense = std::atoi(item.substr(0, equals).c_str());
+        if (equals == std::string::npos || sense < 0 || sense >= ant::kSenseCount) {
+            std::printf("Could not understand '%s'. Write inputs as sense=weight, for example 10=4,8=-4.\n", item.c_str());
+            return 1;
+        }
+        inputWeights[static_cast<std::size_t>(sense)] = static_cast<float>(std::atof(item.substr(equals + 1).c_str()));
+        list = comma == std::string::npos ? "" : list.substr(comma + 1);
+    }
+    const ant::Network grafted =
+        ant::withGraftedNeuron(*loaded, inputWeights, arguments.number("--bias", 0.0f),
+                               {arguments.number("--walk", 0.0f), arguments.number("--turn", 0.0f)});
+
+    std::printf("New neuron listens to:");
+    for (int sense = 0; sense < ant::kSenseCount; ++sense) {
+        if (inputWeights[static_cast<std::size_t>(sense)] != 0.0f) {
+            std::printf(" %s (%+.1f)", ant::senseName(sense), inputWeights[static_cast<std::size_t>(sense)]);
+        }
+    }
+    std::printf("\n");
+
+    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
+    const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
+    const ant::AverageResult after = ant::averageResult(grafted, seeds.first, seeds.count());
+    std::printf("            food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
+    std::printf("before      %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate, before.pickups,
+                before.deaths);
+    std::printf("with neuron %9.2f  %4.0f%%  %8.1f  %7.2f\n", after.delivered, 100.0f * after.winRate, after.pickups,
+                after.deaths);
+
+    const std::string outPath = arguments.text("--out", "");
+    if (!outPath.empty() && storeBrain(grafted, outPath)) {
+        std::printf("Saved %s.\n", outPath.c_str());
+    }
+    return 0;
+}
+
+/// `silence`: removes one hidden neuron's information from a brain and reports the effect.
+int runSilence(const Arguments& arguments) {
+    const std::optional<ant::Network> loaded = openBrain(arguments.text("--brain", "brains/forager.brain"), 1);
+    if (!loaded) {
+        return 1;
+    }
+    const int neuron = arguments.integer("--neuron", 1);  // numbered from 1, as `inspect` prints them
+    if (neuron < 1 || neuron > loaded->layers()[0].weights.rows()) {
+        std::printf("This brain has hidden neurons 1 to %d.\n", loaded->layers()[0].weights.rows());
+        return 1;
+    }
+    const SeedRange seeds = parseSeeds(arguments.text("--seeds", "40000-40199"));
+    const ant::Activations usual = ant::averageActivations(*loaded, ant::sampleObservations(*loaded, seeds.first, 6));
+    const ant::Network damaged = ant::silenced(*loaded, 1, neuron - 1, usual[1][static_cast<std::size_t>(neuron - 1)]);
+
+    const ant::AverageResult before = ant::averageResult(*loaded, seeds.first, seeds.count());
+    const ant::AverageResult after = ant::averageResult(damaged, seeds.first, seeds.count());
+    std::printf("              food/game   wins   pickups   deaths     (maps %u to %u)\n", seeds.first, seeds.last);
+    std::printf("before        %9.2f  %4.0f%%  %8.1f  %7.2f\n", before.delivered, 100.0f * before.winRate, before.pickups,
+                before.deaths);
+    std::printf("h%-2d silenced  %9.2f  %4.0f%%  %8.1f  %7.2f\n", neuron, after.delivered, 100.0f * after.winRate,
+                after.pickups, after.deaths);
+
+    const std::string outPath = arguments.text("--out", "");
+    if (!outPath.empty() && storeBrain(damaged, outPath)) {
+        std::printf("Saved %s.\n", outPath.c_str());
+    }
+    return 0;
+}
+
 void printUsage() {
     std::printf(
         "ant_train - trains and scores ant brains\n\n"
@@ -326,6 +500,15 @@ int main(int argc, char** argv) {
     }
     if (command == "evolve") {
         return runEvolve(arguments);
+    }
+    if (command == "inspect") {
+        return runInspect(arguments);
+    }
+    if (command == "silence") {
+        return runSilence(arguments);
+    }
+    if (command == "graft") {
+        return runGraft(arguments);
     }
     if (command == "score") {
         return runScore(arguments);

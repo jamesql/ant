@@ -13,6 +13,7 @@
 #include "train/episode.h"
 #include "train/evolution.h"
 #include "train/imitation.h"
+#include "train/inspect.h"
 
 using namespace ant;
 
@@ -227,4 +228,57 @@ TEST(evolution_runs_and_gives_the_same_result_every_time) {
     CHECK(bestScores.size() == 4);
     CHECK(bestScores[0] == bestScores[2] && bestScores[1] == bestScores[3]);  // threads do not change the outcome
     CHECK(first.layers()[0].weights.at(0, 0) == second.layers()[0].weights.at(0, 0));
+}
+
+TEST(inspect_silencing_a_neuron_removes_its_information_only) {
+    // With the neuron replaced by exactly the value it has right now, the
+    // output must not change; for a different input it must.
+    const Network brain = makeRandomBrain(4);
+    const std::vector<float> input(static_cast<std::size_t>(kSenseCount), 0.3f);
+    std::vector<float> other(static_cast<std::size_t>(kSenseCount), -0.6f);
+    const float valueNow = brain.run(input)[1][5];
+
+    const Network damaged = silenced(brain, 1, 5, valueNow);
+    CHECK_NEAR(damaged.forward(input)[0], brain.forward(input)[0], 1e-5f);
+    CHECK(std::fabs(damaged.forward(other)[0] - brain.forward(other)[0]) > 1e-4f);
+}
+
+TEST(inspect_jacobian_agrees_with_nudging_each_input) {
+    // The Jacobian is a derivative, so it can be checked the slow way:
+    // nudge one input up and down and see how the outputs move.
+    const Network brain = makeRandomBrain(6);
+    std::vector<float> input(static_cast<std::size_t>(kSenseCount), 0.2f);
+    const std::vector<std::vector<float>> jacobian = averageJacobian(brain, {input});
+
+    const float nudge = 1e-2f;
+    float worstDifference = 0.0f;
+    for (std::size_t sense = 0; sense < input.size(); ++sense) {
+        input[sense] += nudge;
+        const std::vector<float> up = brain.forward(input);
+        input[sense] -= 2.0f * nudge;
+        const std::vector<float> down = brain.forward(input);
+        input[sense] += nudge;
+        for (std::size_t output = 0; output < 2; ++output) {
+            const float measured = (up[output] - down[output]) / (2.0f * nudge);
+            worstDifference = std::max(worstDifference, std::fabs(measured - jacobian[output][sense]));
+        }
+    }
+    CHECK(worstDifference < 1e-3f);
+}
+
+TEST(inspect_grafted_neuron_adds_exactly_its_own_push) {
+    const Network brain = makeRandomBrain(2);
+    std::vector<float> listensTo(static_cast<std::size_t>(kSenseCount), 0.0f);
+    listensTo[20] = 3.0f;  // the "carrying" sense
+
+    // A neuron with no outgoing weights changes nothing.
+    const std::vector<float> input(static_cast<std::size_t>(kSenseCount), 0.5f);
+    const Network silent = withGraftedNeuron(brain, listensTo, 0.0f, {0.0f, 0.0f});
+    CHECK(isAntBrain(silent));
+    CHECK(silent.parameterCount() == brain.parameterCount() + kSenseCount + 1 + 2);
+    CHECK_NEAR(silent.forward(input)[1], brain.forward(input)[1], 1e-6f);
+
+    // One that pushes "turn" makes the ant turn more when the sense is on.
+    const Network pushy = withGraftedNeuron(brain, listensTo, 0.0f, {0.0f, 1.0f});
+    CHECK(pushy.forward(input)[1] > brain.forward(input)[1]);
 }

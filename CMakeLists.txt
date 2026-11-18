@@ -61,6 +61,7 @@ add_library(ant_training STATIC
     src/train/episode.cpp
     src/train/evolution.cpp
     src/train/imitation.cpp
+    src/train/inspect.cpp
 )
 target_link_libraries(ant_training PUBLIC ant_agent Threads::Threads)
 ant_enable_warnings(ant_training)
